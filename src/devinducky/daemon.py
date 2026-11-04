@@ -191,11 +191,8 @@ class Daemon:
             app, url = browser.active_tab_url(self.cfg["browsers"])
         except browser.BrowserError as e:
             log.warning("could not read browser tab: %s", e)
-            if "-1743" in str(e):  # errAEEventNotPermitted
-                notify("devinducky", "Couldn't read the browser tab. Allow Automation for devinducky in "
-                       "System Settings › Privacy & Security › Automation.")
-            else:
-                notify("devinducky", "Couldn't read the browser tab. Is a browser window open?")
+            notify("devinducky", "Couldn't read the browser tab. Allow Automation for devinducky in "
+                   "System Settings › Privacy & Security › Automation.")
             self.frame.set_effect(led, "flash", RED, 1.0)
             return
         sid = browser.session_id_from_url(url, self.cfg["session_url_regex"])

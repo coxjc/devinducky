@@ -1,18 +1,14 @@
-"""Read the active browser tab's URL via JXA (osascript) and pull out a Devin session ID."""
+"""Read the active browser tab's URL with AppleScript and pull out a Devin session ID."""
 
-import json
 import logging
 import re
 import subprocess
 
 log = logging.getLogger(__name__)
 
-# Scripts are JXA, not AppleScript. With several instances of one browser running (e.g.
-# chrome-devtools-mcp or a Puppeteer profile alongside your own Chrome), AppleScript's
-# `tell application "Google Chrome"` can land on a headless automation instance that has
-# no windows ("Can't get window 1"); JXA's Application("Google Chrome") reaches the real one.
-_CHROMIUM = 'Application({app}).windows[0].activeTab.url()'
-_SAFARI = 'Application({app}).documents[0].url()'
+# AppleScript for the active tab's URL, per browser family.
+_CHROMIUM = 'tell application "{app}" to get URL of active tab of front window'
+_SAFARI = 'tell application "{app}" to get URL of front document'
 SCRIPTS = {
     "Google Chrome": _CHROMIUM, "Arc": _CHROMIUM, "Brave Browser": _CHROMIUM,
     "Microsoft Edge": _CHROMIUM, "Chromium": _CHROMIUM,
@@ -20,17 +16,12 @@ SCRIPTS = {
 }
 
 
-def _q(s):
-    return json.dumps(s)
-
-
 class BrowserError(Exception):
     pass
 
 
-def _osascript(script, timeout=5, jxa=False):
-    cmd = ["osascript"] + (["-l", "JavaScript"] if jxa else []) + ["-e", script]
-    out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+def _osascript(script, timeout=5):
+    out = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=timeout)
     if out.returncode != 0:
         raise BrowserError(out.stderr.strip() or "osascript failed")
     return out.stdout.strip()
@@ -42,9 +33,7 @@ def frontmost_app():
 
 
 def running(app):
-    # Ask System Events for a live process: LaunchServices' `application "Safari" is running`
-    # can say true while Safari isn't actually up, and the next call then fails with -600.
-    return _osascript(f'tell application "System Events" to exists process "{app}"') == "true"
+    return _osascript(f'application "{app}" is running') == "true"
 
 
 def active_tab_url(browsers):
@@ -62,26 +51,31 @@ def active_tab_url(browsers):
         try:
             if app != front and not running(app):
                 continue
-            return app, _osascript(script.format(app=_q(app)), jxa=True)
+            return app, _osascript(script.format(app=app))
         except (BrowserError, subprocess.TimeoutExpired) as e:
             errors.append(f"{app}: {e}")
     raise BrowserError("; ".join(errors) or "no supported browser is running")
 
 
-# One Apple Event fetches every tab URL (windows.tabs.url() -> nested list); the loops
-# below run locally, which is ~5x faster than asking the browser tab by tab.
+# One Apple Event fetches every tab URL; the loops below run locally in AppleScript,
+# which is ~5x faster than asking the browser tab by tab.
 _LIST_TABS = '''
-const u = Application({app}).windows.tabs.url();
-const out = [];
-u.forEach((wl, wi) => wl.forEach((url, ti) => out.push((wi + 1) + "\\t" + (ti + 1) + "\\t" + url)));
-out.join("\\n");
+tell application "{app}" to set u to URL of tabs of windows
+set out to ""
+repeat with wi from 1 to count u
+    set wl to item wi of u
+    repeat with ti from 1 to count wl
+        set out to out & wi & tab & ti & tab & (item ti of wl) & linefeed
+    end repeat
+end repeat
+return out
 '''
 _FOCUS = {
-    "chromium": 'const a = Application({app}); const w = a.windows[{w} - 1];\n'
-                'w.activeTabIndex = {t}; w.index = 1; a.activate();',
-    "Arc": 'const a = Application({app}); a.windows[{w} - 1].tabs[{t} - 1].select(); a.activate();',
-    "Safari": 'const a = Application({app}); const w = a.windows[{w} - 1];\n'
-              'w.currentTab = w.tabs[{t} - 1]; w.index = 1; a.activate();',
+    "chromium": 'tell application "{app}"\nset active tab index of window {w} to {t}\n'
+                'set index of window {w} to 1\nactivate\nend tell',
+    "Arc": 'tell application "Arc"\ntell tab {t} of window {w} to select\nactivate\nend tell',
+    "Safari": 'tell application "Safari"\nset current tab of window {w} to tab {t} of window {w}\n'
+              'set index of window {w} to 1\nactivate\nend tell',
 }
 
 
@@ -107,13 +101,12 @@ def focus_tab(browsers, needle):
         try:
             if not running(app):
                 continue
-            tabs = parse_tab_list(_osascript(_LIST_TABS.replace("{app}", _q(app)), jxa=True))
+            tabs = parse_tab_list(_osascript(_LIST_TABS.replace("{app}", app)))
             hit = next(((w, t) for w, t, url in tabs if needle in url), None)
             if not hit:
                 continue
             tpl = _FOCUS.get(app, _FOCUS["chromium"])
-            _osascript(tpl.replace("{app}", _q(app)).replace("{w}", str(hit[0])).replace("{t}", str(hit[1])),
-                      jxa=True)
+            _osascript(tpl.replace("{app}", app).replace("{w}", str(hit[0])).replace("{t}", str(hit[1])))
             return app
         except (BrowserError, subprocess.TimeoutExpired) as e:
             log.warning("focus_tab %s: %s", app, e)
