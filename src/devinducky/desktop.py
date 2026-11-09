@@ -74,8 +74,10 @@ def active_session_id(devin=None):
     """The cloud session in the desktop app's front window, matched by window title.
 
     The app doesn't expose the session ID, so this looks the title up in the app's
-    saved sessions, then (for sessions it hasn't saved yet) in your recent sessions
-    via the API. The title is sometimes a generic label, so this can return None.
+    saved sessions, then via the API in your recent sessions, then in the org's (for
+    teammates' sessions you have open). The app saves only a handful of sessions, so
+    the API does most of the work. The title is sometimes a generic label, so this
+    can return None.
     """
     title = window_title()
     try:
@@ -83,8 +85,9 @@ def active_session_id(devin=None):
     except sqlite3.Error as e:
         log.warning("can't read %s: %s", STATE_DB, e)
         sid = None
-    if not sid and devin is not None:
-        # Rank your own sessions above teammates' with the same title.
-        sid = match_title(title, [(s["session_id"], s.get("title"), (s.get("user_id") == devin.user_id,
-                                   s.get("updated_at") or 0)) for s in devin.recent_sessions()])
+    for user_id in ((devin.user_id, None) if devin is not None else ()):
+        if sid:
+            break
+        sid = match_title(title, [(s["session_id"], s.get("title"), s.get("updated_at") or 0)
+                                  for s in devin.recent_sessions(user_id)])
     return title, sid
