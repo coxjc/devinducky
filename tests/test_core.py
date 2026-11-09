@@ -155,6 +155,19 @@ def test_desktop_open_session_launches_app_when_needed(monkeypatch):
     monkeypatch.setattr(desktop, "osascript", lambda script, timeout=5: calls.append(("osa", script)))
     monkeypatch.setattr(desktop.subprocess, "run", lambda args, **kw: calls.append(tuple(args)))
     monkeypatch.setattr(desktop.time, "sleep", lambda s: None)
-    assert desktop.open_session("abc") is True
+    monkeypatch.setattr(desktop, "click_sidebar_session", lambda sid: False)   # row never shows up
+    assert desktop.open_session("abc") == "link"
     assert calls[0] == ("open", "-b", desktop.BUNDLE_ID)
     assert calls[-1] == ("open", "-b", desktop.BUNDLE_ID, desktop.session_link("abc"))
+
+
+def test_desktop_open_session_prefers_the_sidebar(monkeypatch):
+    from devinducky import desktop
+    calls = []
+    monkeypatch.setattr(desktop, "running", lambda: True)
+    monkeypatch.setattr(desktop, "osascript", lambda script, timeout=5: "")
+    monkeypatch.setattr(desktop.subprocess, "run", lambda args, **kw: calls.append(tuple(args)))
+    monkeypatch.setattr(desktop.time, "sleep", lambda s: None)
+    monkeypatch.setattr(desktop, "click_sidebar_session", lambda sid: sid == "abc")
+    assert desktop.open_session("abc") == "sidebar"
+    assert calls == []                                  # no devin:// link, so nothing goes to the browser

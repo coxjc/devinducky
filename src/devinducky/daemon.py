@@ -248,8 +248,9 @@ class Daemon:
     def _open(self, label, sid):
         with self.nav_lock:
             t = time.monotonic()
-            if desktop.open_session(sid):
-                log.info("%s: shown in the Devin app (%.2fs)", label, time.monotonic() - t)
+            how = desktop.open_session(sid)
+            if how:
+                log.info("%s: shown in the Devin app via %s (%.2fs)", label, how, time.monotonic() - t)
             else:
                 log.warning("%s: couldn't show %s in the Devin app", label, sid)
 
