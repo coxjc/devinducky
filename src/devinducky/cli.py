@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from . import config, keys
+from . import config, keys, oled
 
 LABEL = "com.devinducky.daemon"
 PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
@@ -75,30 +75,17 @@ def cmd_test_pad(args):
         pass
 
 
-def cmd_which_tab(args):
-    from . import auth, browser, desktop
-    from .devin import Devin, DevinError
+def cmd_recents(args):
+    """Print what S1-S12 would show right now."""
+    from . import auth, state
+    from .devin import Devin
+    from .recents import Recents
     cfg = config.load()
-    in_app = cfg["desktop_app"] and browser.running(desktop.APP)
-    if in_app:
-        try:
-            devin = Devin(auth.api_key())
-            devin.whoami()
-            title, sid = desktop.active_session_id(devin)
-            print(f"{desktop.APP} app: {title}")
-            print(f"session: {sid or '(no session with that title)'}")
-        except (browser.BrowserError, DevinError) as e:
-            print(f"{desktop.APP} app: error: {e}")
-    try:
-        app, url = browser.active_tab_url(cfg["browsers"])
-    except browser.BrowserError as e:
-        if in_app:
-            print(f"browser: {e}")
-            return
-        sys.exit(f"error: {e}")
-    print(f"{app}: {url}")
-    sid = browser.session_id_from_url(url, cfg["session_url_regex"])
-    print(f"session: {sid or '(not a Devin session)'}")
+    d = Devin(auth.api_key())
+    d.whoami()
+    top = Recents(d, keys.NUM_SLOTS, cfg["hide_origins"], cfg["list_first"]).refresh()
+    for i, s in enumerate(top):
+        print(f"S{i + 1:<3} {state.display_state(s):<9} {s.get('title') or '(untitled)'}")
 
 
 def cmd_playbooks(args):
@@ -117,6 +104,9 @@ def profile_scripts(cfg):
     for ev, hk in keys.HOTKEY_FOR.items():
         part = "release" if ev.kind == "up" else "press"
         out[(ev.key, part)] = hk.ducky()
+    for k in keys.SLOT_KEYS:
+        out[(k, "press")] = slot_press_script(k)
+        out[(k, "release")] = slot_release_script(k, cfg["hold_ms"])
     out[(keys.KEY_INFO, "press")] = INFO_SCRIPT
     out[(keys.ENC2_CW, "press")] = "MK_VOLUP"      # lower wheel is a plain volume knob,
     out[(keys.ENC2_CCW, "press")] = "MK_VOLDOWN"   # handled on the pad without the daemon
@@ -127,6 +117,49 @@ def profile_scripts(cfg):
     labels[keys.KEY_INFO] = "INFO"
     return out, labels
 
+
+def slot_press_script(key):
+    """Note when the key went down and forget the last title, then tell the daemon.
+
+    The script ends straight away: the pad rejects HID writes while a script
+    runs, and the daemon now writes this slot's title into _GV0.._GV19 and then
+    sets _GV28 to this key.
+    """
+    return "\n".join(["_GV28 = 0", "_GV29 = _TIME_MS", keys.HOTKEY_FOR[keys.Event("down", key)].ducky()])
+
+
+def slot_release_script(key, hold_ms):
+    """Tell the daemon the key is up; on a tap, draw the session title the daemon sent.
+
+    The up hotkey goes first so the daemon times the press correctly. The title is
+    _GV0.._GV19 copied to scratch memory and printed a row at a time with PUTS
+    (bit 29 = print to the OLED); see oled.py. The pad redraws the key labels as
+    soon as a script that drew to the OLED ends, so it stays up for a few seconds
+    or until any key is pressed.
+    """
+    base, cols = oled.BASE, oled.COLS
+    lines = [keys.HOTKEY_FOR[keys.Event("up", key)].ducky(),
+             f"IF _TIME_MS - _GV29 < {hold_ms} && _GV28 == {key}",
+             "OLED_CLEAR"]
+    lines += [f"POKE32({base + 4 * i}, _GV{i})" for i in range(oled.TITLE_GVS)]
+    lines.append(f"POKE8({base + 4 * oled.TITLE_GVS}, 0)")
+    for r in range(oled.ROWS):
+        lines += [f"OLED_CURSOR 0 {4 + 14 * r}", f"PUTS({base + cols * r} | ({cols} << 16) | (1 << 29))"]
+    lines += ["OLED_CURSOR 0 110", "OLED_CPRINT any key to close", "OLED_UPDATE",
+              "VAR start = _TIME_MS",
+              f"WHILE _TIME_MS - start < {TITLE_SHOW_MS}",
+              "VAR k = _READKEY",
+              "IF k != 0",
+              "LBREAK",
+              "END_IF",
+              "DELAY 20",
+              "END_WHILE",
+              "OLED_RESTORE",
+              "END_IF"]
+    return "\n".join(lines)
+
+
+TITLE_SHOW_MS = 4000
 
 INFO_SCRIPT = """\
 // devinducky summary. The daemon writes:
@@ -143,7 +176,7 @@ IF _GV26 == 1
 ELSE IF _GV26 == 2
     OLED_CPRINT API UNREACHABLE
 ELSE IF _GV27 == 0
-    OLED_CPRINT hold a key to bind
+    OLED_CPRINT no sessions yet
 ELSE IF _GV21 > 0
     OLED_CPRINT $_GV21 WAITING ON YOU
 ELSE IF _GV22 > 0
@@ -319,7 +352,7 @@ def main(argv=None):
     r.add_argument("--log-file", action="store_true", help=f"log to {config.LOG_FILE}")
     r.set_defaults(fn=cmd_run)
     sub.add_parser("test-pad", help="cycle LEDs and echo key events").set_defaults(fn=cmd_test_pad)
-    sub.add_parser("which-tab", help="show the active tab's Devin session").set_defaults(fn=cmd_which_tab)
+    sub.add_parser("recents", help="show which session each slot key holds").set_defaults(fn=cmd_recents)
     sub.add_parser("playbooks", help="list org playbooks").set_defaults(fn=cmd_playbooks)
     g = sub.add_parser("gen-profile", help="write the duckyPad profile scripts")
     g.add_argument("--out", default="profile")

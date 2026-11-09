@@ -127,3 +127,17 @@ def test_hold_opens_in_app_and_tap_does_nothing_on_the_mac(monkeypatch):
     d.handle("hold", 1)
     d.handle("hold", 2)                   # empty slot
     assert opened == [0]
+
+
+# ---------- pad scripts ----------
+
+def test_slot_release_script_sends_up_first_then_draws_title_on_tap():
+    from devinducky import cli, keys
+    lines = cli.slot_release_script(3, 700).splitlines()
+    assert lines[0] == keys.HOTKEY_FOR[keys.Event("up", 3)].ducky()
+    assert "IF _TIME_MS - _GV29 < 700 && _GV28 == 3" in lines
+    assert "POKE32(62464, _GV0)" in lines and "POKE32(62540, _GV19)" in lines
+    assert "POKE8(62544, 0)" in lines
+    assert "PUTS(62464 | (18 << 16) | (1 << 29))" in lines
+    assert "PUTS(62518 | (18 << 16) | (1 << 29))" in lines     # 4th row starts at byte 54
+    assert lines[-1] == "END_IF"
