@@ -35,7 +35,7 @@ DUCKY_MOD = {"ctrl": "CTRL", "alt": "ALT", "shift": "SHIFT", "cmd": "COMMAND"}
 
 @dataclass(frozen=True)
 class Event:
-    kind: str          # "down" | "up" | "press"
+    kind: str          # "press" | "open" (slot keys: tapped again while its title shows)
     key: int           # duckyPad key ID
 
 
@@ -54,8 +54,8 @@ class Hotkey:
 def _events():
     """Every event the pad can emit, in a fixed order (hotkeys are assigned in this order)."""
     evs = []
-    for k in SLOT_KEYS:                 # slots need down AND up to time a hold
-        evs += [Event("down", k), Event("up", k)]
+    for k in SLOT_KEYS:                 # press = show my title; open = tapped again while it shows
+        evs += [Event("press", k), Event("open", k)]
     for k in LAUNCH_KEYS + [KEY_OPEN, KEY_DASH, KEY_REFRESH]:
         evs.append(Event("press", k))
     for k in (ENC1_CW, ENC1_CCW, ENC1_PUSH, ENC2_PUSH):

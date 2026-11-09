@@ -20,8 +20,7 @@ GREEN, RED, DIM = (0, 255, 60), (255, 0, 0), (40, 40, 40)
 CURSOR_TIMEOUT_S = 10
 GOTO_SETTLE_S = 0.35            # open the cursor's session once the wheel stops turning
 API_OK, API_AUTH, API_NET = 0, 1, 2
-GV_HANDSHAKE = 28               # the slot key whose title is in _GV0.._GV19 (+100: no session)
-EMPTY_HANDSHAKE = 100
+GV_HANDSHAKE = oled.GV_HANDSHAKE
 
 
 def notify(title, message):
@@ -161,34 +160,31 @@ class Daemon:
 
     def _on_raw(self, ev, _now):
         self.renderer.invalidate(keys.led_of_key(ev.key))
-        if ev.kind == "down" and keys.slot_of(ev.key) is not None:
+        if ev.kind == "press" and keys.slot_of(ev.key) is not None:
             threading.Thread(target=self.send_title, args=(ev.key,), daemon=True).start()
 
     def send_title(self, key):
-        """Put slot `key`'s title in _GV0.._GV19 for its release script to draw, then say whose it is.
+        """Put slot `key`'s title in _GV0.._GV19 for the pad's title screen, then say whose it is.
 
-        This has to land between the key's press and release scripts: the pad
-        rejects HID writes while a script runs.
+        The title screen (cli.slot_title_script) keeps running while it's up and
+        redraws once _GV28 names the key it's waiting for; _GV28 is cleared first so
+        it never draws an older title for that key.
         """
         with self.lock:
             sid = self.slots[keys.slot_of(key)]
             s = self.sessions.get(sid) if sid else None
+            said = self.recents.last_devin_text.get(sid) if (s and self.recents) else None
+        title, status = (title_of(s), state.status_text(s, said)) if s else ("(no session)", "")
         if self.dry_pad:
-            log.debug("title for key %d: %r", key, s and title_of(s))
+            log.debug("screen for key %d: %r / %r", key, title, status)
             return
-        handshake = {GV_HANDSHAKE: key if s else key + EMPTY_HANDSHAKE}
 
         def write(pad):
-            if s:
-                pad.write_gv(oled.title_gvs(title_of(s)))
-            pad.write_gv(handshake)
+            pad.write_gv({GV_HANDSHAKE: 0})
+            pad.write_gv(oled.screen_gvs(title, status))
+            pad.write_gv({GV_HANDSHAKE: key})
 
         self._urgent_write(write, f"title for key {key}")
-
-    def cancel_title(self, key):
-        """The press became a hold: clear _GV28 so the release script doesn't draw the title."""
-        if not self.dry_pad:
-            self._urgent_write(lambda pad: pad.write_gv({GV_HANDSHAKE: 0}), f"title cancel for key {key}")
 
     def _urgent_write(self, fn, what):
         hid.PRIORITY.set()
@@ -203,18 +199,11 @@ class Daemon:
         log.debug("event %s %s", kind, key)
         slot = keys.slot_of(key)
         if slot is not None:
-            led = keys.led_of_slot(slot)
-            if kind == "ready":          # held long enough; let go to open
-                threading.Thread(target=self.cancel_title, args=(key,), daemon=True).start()
+            if kind == "open":           # tapped again while its title was showing
                 if self.slots[slot]:
-                    self.frame.set_effect(led, "solid", WHITE, 5)
-            elif kind == "hold":
-                if self.slots[slot]:
-                    self.frame.set_effect(led, "fade", WHITE, 0.6)
-                    self.open_slot(slot)
-                else:
-                    self.frame.set_effect(led, "fade", DIM, 0.3)
-            # a tap only shows the title, which the pad draws itself
+                    self.frame.set_effect(keys.led_of_slot(slot), "fade", WHITE, 0.6)
+                self.open_slot(slot)
+            # a first tap only shows the title, which the pad draws itself
             return
         launch = keys.launch_of(key)
         if launch is not None:
@@ -343,8 +332,7 @@ class Daemon:
                                             or self.slots[self.cursor] is None):
                 self.cursor = None
             f.cursor = keys.led_of_slot(self.cursor) if self.cursor is not None else None
-            cur_sid = self.slots[self.cursor] if self.cursor is not None else None
-            gvs = state.summary_gvs(slot_states, self.cursor, self.states.get(cur_sid), self.api_health)
+            gvs = state.summary_gvs(slot_states, self.api_health)
         return f.evaluate(t), gvs
 
     def render_loop(self):

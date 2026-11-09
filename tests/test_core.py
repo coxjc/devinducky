@@ -35,9 +35,17 @@ def test_transitions_only_notable_changes():
 
 
 def test_summary_gvs():
-    g = state.summary_gvs(["working", "waiting", "finished", "approval"], 2, "finished", 0)
-    assert g == {20: state.CODE["approval"], 21: 2, 22: 1, 23: 1, 24: 3, 25: state.CODE["finished"], 26: 0, 27: 4}
-    assert state.summary_gvs([], None, None, 1)[20] == 0
+    g = state.summary_gvs(["working", "waiting", "finished", "approval"], 0)
+    assert g == {28: state.CODE["approval"] | 2 << 8 | 1 << 16 | 1 << 24, 29: 0 | 4 << 8}
+    assert state.summary_gvs([], 1) == {28: 0, 29: 1}
+
+
+def test_status_text():
+    s = {"status": "running", "status_detail": "waiting_for_user", "pull_requests": [{}, {}]}
+    assert state.status_text(s, "Which  items\nshould I pick?") == "Waiting for you, 2 PRs: Which items should I pick?"
+    assert state.status_text({"status": "running", "status_detail": "working"}, "ignored") == "Working"
+    assert state.status_text({"status": "suspended", "status_detail": "out_of_credits"}) == "Error: out of credits"
+    assert state.status_text({"status": "running", "status_detail": "finished", "pull_requests": [{}]}) == "Done, 1 PR"
 
 
 def test_parse_ts():
@@ -81,9 +89,9 @@ def test_hotkey_table_unique_and_roundtrips():
     assert decode({"ctrl"}, "f13") is None
 
 
-def test_every_slot_has_down_and_up():
+def test_every_slot_has_press_and_open():
     for k in keys.SLOT_KEYS:
-        assert keys.Event("down", k) in keys.HOTKEY_FOR and keys.Event("up", k) in keys.HOTKEY_FOR
+        assert keys.Event("press", k) in keys.HOTKEY_FOR and keys.Event("open", k) in keys.HOTKEY_FOR
 
 
 # ---------- tap vs hold ----------
@@ -119,7 +127,7 @@ def test_build_profile(tmp_path):
     conf = open(f"{pdir}/config.txt").read().splitlines()
     assert "z1 S1" in conf and "dr 1" in conf and "z13 Fix C" in conf and "dr 20" in conf
     assert all(f"z{k} " in "\n".join(conf) for k in range(1, 27))
-    assert open(f"{pdir}/key1.txt").read() == keys.HOTKEY_FOR[keys.Event("down", 1)].ducky() + "\n"
+    assert open(f"{pdir}/key1.txt").read() == keys.HOTKEY_FOR[keys.Event("press", 1)].ducky() + "\n"
     release = open(f"{pdir}/key1-release.txt").read().splitlines()
     assert not any(l.startswith("_GV") for l in release)     # key scripts never write GVs
 

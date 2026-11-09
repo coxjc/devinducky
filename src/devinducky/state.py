@@ -69,19 +69,43 @@ def parse_ts(value):
         return None
 
 
-def summary_gvs(states, cursor_slot, cursor_state, api_health):
-    """GV values the INFO key's OLED script reads. states: per-bound-slot display states."""
+GV_SUMMARY, GV_SUMMARY2 = 28, 29
+
+
+def summary_gvs(states, api_health):
+    """GV values the INFO key's OLED script reads, a byte each. states: one per occupied slot.
+
+    _GV28 = most urgent | waiting << 8 | working << 16 | done << 24
+    _GV29 = api health | occupied slots << 8
+    """
     vals = list(states)
-    return {
-        20: CODE[most_urgent(vals)],
-        21: sum(s in ("waiting", "approval") for s in vals),
-        22: sum(s in ("working", "starting") for s in vals),
-        23: sum(s == "finished" for s in vals),
-        24: (cursor_slot + 1) if cursor_slot is not None else 0,
-        25: CODE.get(cursor_state, 0),
-        26: api_health,
-        27: len(vals),
-    }
+    waiting = sum(s in ("waiting", "approval") for s in vals)
+    working = sum(s in ("working", "starting") for s in vals)
+    done = sum(s == "finished" for s in vals)
+    return {GV_SUMMARY: CODE[most_urgent(vals)] | waiting << 8 | working << 16 | done << 24,
+            GV_SUMMARY2: api_health | len(vals) << 8}
+
+
+_ERROR_DETAIL = {"out_of_credits": "out of credits", "out_of_quota": "out of quota",
+                 "usage_limit_exceeded": "usage limit", "payment_declined": "payment declined",
+                 "org_usage_limit_exceeded": "org usage limit", "error": "failed"}
+_PHRASE = {"approval": "Needs approval", "waiting": "Waiting for you", "working": "Working",
+           "starting": "Starting", "finished": "Done", "idle": "Asleep", "ended": "Ended", "unbound": ""}
+
+
+def status_text(session, last_devin_message=None):
+    """What a session is doing, for the pad's title screen: "Waiting for you: <what Devin asked>"."""
+    st = display_state(session)
+    text = _PHRASE.get(st, st)
+    if st == "error":
+        detail = session.get("status_detail")
+        text = "Error: " + _ERROR_DETAIL.get(detail, (detail or "failed").replace("_", " "))
+    prs = len(session.get("pull_requests") or [])
+    if prs:
+        text += f", {prs} PR{'s' if prs != 1 else ''}"
+    if st in ("waiting", "approval") and last_devin_message:
+        text += ": " + " ".join(last_devin_message.split())
+    return text
 
 
 def now_ts():

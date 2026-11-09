@@ -11,13 +11,12 @@ def test_title_rows_wrap_and_truncate():
     assert all(len(r) <= oled.COLS for r in oled.title_rows("x" * 200))
 
 
-def test_title_gvs_pack_little_endian_and_pad():
-    gvs = oled.title_gvs("ABCD")
-    assert sorted(gvs) == list(range(20))
-    assert gvs[0] == 0x44434241
-    assert gvs[1] == 0x20202020          # rest of row 1 is spaces
-    row2 = oled.title_gvs("x" * 18 + "y")  # second row starts at byte 18 (inside GV4)
-    assert (row2[4] >> 16) & 0xFF == ord("y")
+def test_screen_gvs_title_then_status_little_endian():
+    gvs = oled.screen_gvs("ABCD", "Waiting for you: pick one")
+    assert sorted(gvs) == list(range(27))
+    assert gvs[0] == 0x44434241 and gvs[1] == 0x20202020
+    raw = b"".join(gvs[i].to_bytes(4, "little") for i in range(27)).decode()
+    assert raw[72:90].rstrip() == "Waiting for you:" and raw[90:108].rstrip() == "pick one"
 
 
 # ---------- ranking ----------
@@ -106,44 +105,57 @@ def _daemon(monkeypatch):
     return d, writes
 
 
-def test_key_down_sends_title_then_handshake(monkeypatch):
+def test_press_sends_screen_between_cleared_and_set_handshake(monkeypatch):
     d, writes = _daemon(monkeypatch)
+    d.recents = type("R", (), {"last_devin_text": {"aaa": "Which one?"}})()
+    d.sessions["aaa"].update(status="running", status_detail="waiting_for_user")
     d.send_title(1)
-    assert writes == [oled.title_gvs("Fix the bug"), {28: 1}]
+    assert writes == [{27: 0}, oled.screen_gvs("Fix the bug", "Waiting for you: Which one?"), {27: 1}]
 
 
-def test_key_down_on_empty_slot_sends_only_empty_handshake(monkeypatch):
+def test_press_on_empty_slot_says_so(monkeypatch):
     d, writes = _daemon(monkeypatch)
+    d.recents = None
     d.send_title(2)
-    assert writes == [{28: 102}]
+    assert writes == [{27: 0}, oled.screen_gvs("(no session)", ""), {27: 2}]
 
 
-def test_hold_opens_in_app_and_tap_does_nothing_on_the_mac(monkeypatch):
+def test_open_event_opens_in_app_and_press_does_nothing_on_the_mac(monkeypatch):
     d, _ = _daemon(monkeypatch)
     opened = []
     monkeypatch.setattr(d, "open_slot", opened.append, raising=False)
-    d.handle("tap", 1)
+    d.handle("press", 1)
     assert opened == []
-    d.handle("hold", 1)
-    d.handle("hold", 2)                   # empty slot
+    d.handle("open", 1)
     assert opened == [0]
 
 
 # ---------- pad scripts ----------
 
-def test_slot_release_script_sends_up_first_then_draws_title_on_tap():
+def test_slot_title_script_redraws_opens_and_passes_keys_through():
     from devinducky import cli, keys
-    lines = cli.slot_release_script(3).splitlines()
-    assert lines[0] == keys.HOTKEY_FOR[keys.Event("up", 3)].ducky()
-    assert "IF _GV28 == 3" in lines
-    assert "POKE32(62464, _GV0)" in lines and "POKE32(62540, _GV19)" in lines
-    assert "POKE8(62544, 0)" in lines
-    assert "PUTS(62464 | (18 << 16) | (1 << 29))" in lines
-    assert "PUTS(62518 | (18 << 16) | (1 << 29))" in lines     # 4th row starts at byte 54
-    assert lines[-1] == "END_IF"
+    lines = cli.slot_title_script(3).split("\n")
+    assert lines[0] == "VAR want = 3"
+    assert "IF _GV27 == want && shown != want" in lines
+    assert "POKE32(62464, _GV0)" in lines and "POKE32(62568, _GV26)" in lines and "POKE8(62572, 0)" in lines
+    assert "PUTS(62536 | (18 << 16) | (1 << 29))" in lines          # 5th row (status) starts at byte 72
+    assert not any(l.startswith("_GV") for l in lines)                  # scripts never write GVs
+    i = lines.index("IF p == want")
+    assert lines[i + 1:i + 4] == ["IF want == 1", keys.HOTKEY_FOR[keys.Event("open", 1)].ducky(), "END_IF"]
+    assert keys.HOTKEY_FOR[keys.Event("press", 7)].ducky() in lines     # another slot: ask for its title
+    assert keys.HOTKEY_FOR[keys.Event("press", keys.LAUNCH_KEYS[0])].ducky() in lines   # other keys still work
+    assert lines[-1] == "OLED_RESTORE"
 
 
-def test_hold_ready_clears_the_handshake(monkeypatch):
-    d, writes = _daemon(monkeypatch)
-    d.cancel_title(1)
-    assert writes == [{28: 0}]
+def test_recents_keeps_devins_last_message():
+    from devinducky.recents import Recents
+
+    class Dv(FakeDevin):
+        def session_messages(self, sid):
+            return [{"created_at": 5, "source": "devin", "message": "first"},
+                    {"created_at": 6, "source": "user", "message": "hi"},
+                    {"created_at": 7, "source": "devin", "message": "Which items?"}]
+
+    r = Recents(Dv([_s("a", 1, 7)], {}))
+    r.refresh()
+    assert r.last_devin_text == {"a": "Which items?"}

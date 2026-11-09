@@ -29,6 +29,7 @@ class Recents:
         self.first = first
         self.sessions = {}       # session_id -> latest session dict (visible ones only)
         self.last_msg = {}       # session_id -> (updated_at, last message ts or bound, exact?)
+        self.last_devin_text = {}  # session_id -> Devin's latest message (for the title screen)
         self.synced_at = None    # wall time the last successful refresh started
 
     def refresh(self):
@@ -54,6 +55,7 @@ class Recents:
         if s.get("is_archived") or s.get("origin") in self.hide_origins:
             self.sessions.pop(sid, None)
             self.last_msg.pop(sid, None)
+            self.last_devin_text.pop(sid, None)
             return
         self.sessions[sid] = s
         cached = self.last_msg.get(sid)
@@ -62,7 +64,11 @@ class Recents:
 
     def _read_messages(self, sid):
         s = self.sessions[sid]
-        times = [state.parse_ts(m.get("created_at")) for m in self.devin.session_messages(sid)]
+        messages = self.devin.session_messages(sid)
+        from_devin = [m.get("message") for m in messages if m.get("source") == "devin" and m.get("message")]
+        if from_devin:
+            self.last_devin_text[sid] = from_devin[-1]
+        times = [state.parse_ts(m.get("created_at")) for m in messages]
         times = [t for t in times if t is not None]
         self.last_msg[sid] = (s.get("updated_at"), max(times) if times else state.parse_ts(s.get("created_at")), True)
 

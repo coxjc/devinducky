@@ -152,7 +152,7 @@ class PadInput:
                 if kind:
                     self.events.put((kind, ev.key))
             else:
-                self.events.put(("press", ev.key))
+                self.events.put((ev.kind, ev.key))
 
     def _hold_loop(self):
         while True:
