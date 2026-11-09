@@ -145,9 +145,12 @@ def test_slot_title_script_redraws_opens_and_passes_keys_through():
     assert not any(l.startswith("_GV") for l in lines)                  # scripts never write GVs
     i = lines.index("IF p == want")
     assert lines[i + 1:i + 4] == ["IF want == 1", keys.HOTKEY_FOR[keys.Event("open", 1)].ducky(), "END_IF"]
+    assert "closing = 1" in lines and "done = 1" in lines
     assert keys.HOTKEY_FOR[keys.Event("press", 7)].ducky() not in lines # another slot only closes
     assert keys.HOTKEY_FOR[keys.Event("press", keys.LAUNCH_KEYS[0])].ducky() in lines   # other keys still work
     assert lines[-5:] == ["OLED_RESTORE", "KEYUP CTRL", "KEYUP ALT", "KEYUP SHIFT", "KEYUP COMMAND"]
+    assert "LBREAK" not in lines and "CONTINUE" not in lines                 # these misbehaved on the pad
+    assert sum(l.startswith("WHILE") for l in lines) == 1                   # one flat loop
     declared = [l.split()[1] for l in lines if l.startswith("VAR ")]
     assert len(declared) == len(set(declared))                          # the compiler rejects re-declaring
 

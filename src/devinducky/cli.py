@@ -165,21 +165,25 @@ def slot_title_script(key):
     other = {ev.key: hk.ducky() for ev, hk in keys.HOTKEY_FOR.items()
              if ev.kind == "press" and keys.slot_of(ev.key) is None}
     other[keys.ENC2_CW], other[keys.ENC2_CCW] = "MK_VOLUP", "MK_VOLDOWN"
-    let_go = ["t0 = _TIME_MS",                               # wait (up to 1 s) for p to be let go
-              "WHILE _READKEY == p && _TIME_MS - t0 < 1000",
-              "DELAY 10",
-              "END_WHILE"]
-    lines = [f"VAR want = {key}", "VAR shown = 0", f"VAR last = {key}", "VAR start = _TIME_MS", "VAR t0 = 0",
-             "VAR p = 0"] + loading
-    lines += [f"WHILE _TIME_MS - start < {TITLE_SHOW_MS}",
+    # One flat loop: no inner WHILE and no LBREAK. An LBREAK right after an inner
+    # WHILE didn't leave the screen on the pad (it looped forever, or kept sending
+    # "open"), so closing is a state: wait for the key to be let go, then end.
+    end = ["closing = 1", "t0 = _TIME_MS"]
+    lines = [f"VAR want = {key}", "VAR shown = 0", f"VAR last = {key}", "VAR start = _TIME_MS",
+             "VAR t0 = 0", "VAR p = 0", "VAR closing = 0", "VAR done = 0"] + loading
+    lines += [f"WHILE done == 0 && (closing == 1 || _TIME_MS - start < {TITLE_SHOW_MS})",
+              "IF closing == 1",
+              "IF _READKEY == 0 || _TIME_MS - t0 > 1000",   # let go (or gave up waiting)
+              "done = 1",
+              "END_IF",
+              "ELSE",
               f"IF _GV{oled.GV_HANDSHAKE} == want && shown != want"] + draw + ["shown = want", "END_IF",
               "p = _READKEY",
               "IF p != last",                                # act on a change only: the key that
               "last = p",                                    # started this script reads as still down
               "IF p != 0",
-              "IF p == want"] + _per_key("want", open_) + let_go + ["LBREAK", "END_IF",
-              f"IF p <= {keys.SLOT_KEYS[-1]}"] + let_go + ["LBREAK", "END_IF"]
-    lines += _per_key("p", other) + let_go + ["LBREAK", "END_IF", "END_IF", "DELAY 20", "END_WHILE", "OLED_RESTORE"]
+              "IF p == want"] + _per_key("want", open_) + ["END_IF"]
+    lines += _per_key("p", other) + end + ["END_IF", "END_IF", "END_IF", "DELAY 20", "END_WHILE", "OLED_RESTORE"]
     lines += [f"KEYUP {m}" for m in ("CTRL", "ALT", "SHIFT", "COMMAND")]   # never leave a modifier held
     return "\n".join(lines)
 
