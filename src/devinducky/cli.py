@@ -139,10 +139,13 @@ def slot_title_script(key):
     It keeps the screen up and handles every key itself while it's showing:
 
     - same key again: send its "open" hotkey and close
-    - another session key: send its press hotkey and close; when that key is let
-      go, its own title screen starts with its title already stored
+    - another session key: close (tap it again to see that session; typing its
+      hotkey from here and closing while it was still held left Ctrl stuck down)
     - any other key: do what that key does and close (INFO just closes)
     - nothing for TITLE_SHOW_MS: close
+
+    Every key that ends the screen is waited on until it's let go, and the script
+    ends by releasing every modifier, so the pad never leaves one held.
 
     The firmware reports the key that started a script as still pressed, so a key
     only counts when the reading changes (starting from this key), and a key that
@@ -158,7 +161,6 @@ def slot_title_script(key):
         y = 4 + 14 * r + (6 if r >= oled.ROWS else 0)        # a gap between title and status
         draw += [f"OLED_CURSOR 0 {y}", f"PUTS({base + cols * r} | ({cols} << 16) | (1 << 29))"]
     draw += ["OLED_CURSOR 0 114", "OLED_CPRINT tap again to open", "OLED_UPDATE"]
-    press = {k: keys.HOTKEY_FOR[keys.Event("press", k)].ducky() for k in keys.SLOT_KEYS}
     open_ = {k: keys.HOTKEY_FOR[keys.Event("open", k)].ducky() for k in keys.SLOT_KEYS}
     other = {ev.key: hk.ducky() for ev, hk in keys.HOTKEY_FOR.items()
              if ev.kind == "press" and keys.slot_of(ev.key) is None}
@@ -176,8 +178,9 @@ def slot_title_script(key):
               "last = p",                                    # started this script reads as still down
               "IF p != 0",
               "IF p == want"] + _per_key("want", open_) + let_go + ["LBREAK", "END_IF",
-              f"IF p <= {keys.SLOT_KEYS[-1]}"] + _per_key("p", press) + ["LBREAK", "END_IF"]
+              f"IF p <= {keys.SLOT_KEYS[-1]}"] + let_go + ["LBREAK", "END_IF"]
     lines += _per_key("p", other) + let_go + ["LBREAK", "END_IF", "END_IF", "DELAY 20", "END_WHILE", "OLED_RESTORE"]
+    lines += [f"KEYUP {m}" for m in ("CTRL", "ALT", "SHIFT", "COMMAND")]   # never leave a modifier held
     return "\n".join(lines)
 
 
