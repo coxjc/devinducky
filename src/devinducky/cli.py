@@ -105,8 +105,7 @@ def profile_scripts(cfg):
         part = "release" if ev.kind == "up" else "press"
         out[(ev.key, part)] = hk.ducky()
     for k in keys.SLOT_KEYS:
-        out[(k, "press")] = slot_press_script(k)
-        out[(k, "release")] = slot_release_script(k, cfg["hold_ms"])
+        out[(k, "release")] = slot_release_script(k)
     out[(keys.KEY_INFO, "press")] = INFO_SCRIPT
     out[(keys.ENC2_CW, "press")] = "MK_VOLUP"      # lower wheel is a plain volume knob,
     out[(keys.ENC2_CCW, "press")] = "MK_VOLDOWN"   # handled on the pad without the daemon
@@ -118,28 +117,24 @@ def profile_scripts(cfg):
     return out, labels
 
 
-def slot_press_script(key):
-    """Note when the key went down and forget the last title, then tell the daemon.
-
-    The script ends straight away: the pad rejects HID writes while a script
-    runs, and the daemon now writes this slot's title into _GV0.._GV19 and then
-    sets _GV28 to this key.
-    """
-    return "\n".join(["_GV28 = 0", "_GV29 = _TIME_MS", keys.HOTKEY_FOR[keys.Event("down", key)].ducky()])
-
-
-def slot_release_script(key, hold_ms):
+def slot_release_script(key):
     """Tell the daemon the key is up; on a tap, draw the session title the daemon sent.
 
-    The up hotkey goes first so the daemon times the press correctly. The title is
-    _GV0.._GV19 copied to scratch memory and printed a row at a time with PUTS
-    (bit 29 = print to the OLED); see oled.py. The pad redraws the key labels as
-    soon as a script that drew to the OLED ends, so it stays up for a few seconds
-    or until any key is pressed.
+    The daemon writes the title into _GV0.._GV19 and _GV28 = this key when the key
+    goes down, and sets _GV28 back to 0 once a press becomes a hold. So _GV28 still
+    naming this key means a tap. The pad rejects HID writes while a script runs,
+    which is why the press script only types its hotkey and ends, and why this
+    script sends the up hotkey before anything else. Scripts here never write _GVs
+    (the firmware refuses that in a key script).
+
+    The title is _GV0.._GV19 copied to scratch memory and printed a row at a time
+    with PUTS (bit 29 = print to the OLED); see oled.py. The pad redraws the key
+    labels as soon as a script that drew to the OLED ends, so it stays up for a few
+    seconds or until any key is pressed.
     """
     base, cols = oled.BASE, oled.COLS
     lines = [keys.HOTKEY_FOR[keys.Event("up", key)].ducky(),
-             f"IF _TIME_MS - _GV29 < {hold_ms} && _GV28 == {key}",
+             f"IF _GV28 == {key}",
              "OLED_CLEAR"]
     lines += [f"POKE32({base + 4 * i}, _GV{i})" for i in range(oled.TITLE_GVS)]
     lines.append(f"POKE8({base + 4 * oled.TITLE_GVS}, 0)")

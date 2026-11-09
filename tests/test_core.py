@@ -119,8 +119,9 @@ def test_build_profile(tmp_path):
     conf = open(f"{pdir}/config.txt").read().splitlines()
     assert "z1 S1" in conf and "dr 1" in conf and "z13 Fix C" in conf and "dr 20" in conf
     assert all(f"z{k} " in "\n".join(conf) for k in range(1, 27))
-    press = open(f"{pdir}/key1.txt").read().splitlines()
-    assert press == ["_GV28 = 0", "_GV29 = _TIME_MS", keys.HOTKEY_FOR[keys.Event("down", 1)].ducky()]
+    assert open(f"{pdir}/key1.txt").read() == keys.HOTKEY_FOR[keys.Event("down", 1)].ducky() + "\n"
+    release = open(f"{pdir}/key1-release.txt").read().splitlines()
+    assert not any(l.startswith("_GV") for l in release)     # key scripts never write GVs
 
 
 def test_top_wheel_switches_to_session_after_settling(tmp_path, monkeypatch):

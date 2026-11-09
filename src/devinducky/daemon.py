@@ -183,11 +183,19 @@ class Daemon:
                 pad.write_gv(oled.title_gvs(title_of(s)))
             pad.write_gv(handshake)
 
+        self._urgent_write(write, f"title for key {key}")
+
+    def cancel_title(self, key):
+        """The press became a hold: clear _GV28 so the release script doesn't draw the title."""
+        if not self.dry_pad:
+            self._urgent_write(lambda pad: pad.write_gv({GV_HANDSHAKE: 0}), f"title cancel for key {key}")
+
+    def _urgent_write(self, fn, what):
         hid.PRIORITY.set()
         try:
-            hid.with_retry(write, attempts=2, delay_s=0.02)
+            hid.with_retry(fn, attempts=2, delay_s=0.02)
         except (hid.PadBusy, hid.PadNotFound, hid.PadError, OSError) as e:
-            log.debug("title for key %d not sent: %s", key, e)
+            log.info("%s not sent: %s", what, e)
         finally:
             hid.PRIORITY.clear()
 
@@ -197,6 +205,7 @@ class Daemon:
         if slot is not None:
             led = keys.led_of_slot(slot)
             if kind == "ready":          # held long enough; let go to open
+                threading.Thread(target=self.cancel_title, args=(key,), daemon=True).start()
                 if self.slots[slot]:
                     self.frame.set_effect(led, "solid", WHITE, 5)
             elif kind == "hold":
