@@ -187,6 +187,7 @@ class Daemon:
             pad.write_gv({GV_HANDSHAKE: key})
 
         self._urgent_write(write, f"title for key {key}")
+        log.debug("screen for key %d sent: %r", key, title[:30])
 
     def _urgent_write(self, fn, what):
         hid.PRIORITY.set()

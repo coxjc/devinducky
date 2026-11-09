@@ -105,6 +105,9 @@ def profile_scripts(cfg):
         if ev.kind == "press":
             out[(ev.key, "press")] = hk.ducky()
     for k in keys.SLOT_KEYS:
+        # Give the daemon time to store the title before the title screen starts:
+        # a script sees the GVs as they were when it started.
+        out[(k, "press")] += f"\nDELAY {TITLE_WAIT_MS}"
         out[(k, "release")] = slot_title_script(k)
     out[(keys.KEY_INFO, "press")] = INFO_SCRIPT
     out[(keys.ENC2_CW, "press")] = "MK_VOLUP"      # lower wheel is a plain volume knob,
@@ -129,14 +132,15 @@ def _per_key(var, actions):
 def slot_title_script(key):
     """The title screen, run when slot `key` is let go after a press.
 
-    The press script has already told the daemon (press hotkey), which writes that
-    session's title and status into _GV0.._GV26 and then _GV27 = the key. This
-    script keeps the screen up and handles every key itself while it's showing, so
-    nothing is blocked; the pad keeps taking HID writes while a script runs, so the
-    daemon can send another key's title mid-way.
+    The press script has already told the daemon (press hotkey) and waited for it
+    to write that session's title and status into _GV0.._GV26 and then _GV27 = the
+    key. A script sees the GVs as they were when it started (writes that land while
+    it runs are stored but invisible to it), so this script never waits on new data.
+    It keeps the screen up and handles every key itself while it's showing:
 
     - same key again: send its "open" hotkey and close
-    - another slot key: send its press hotkey and show that session instead
+    - another session key: send its press hotkey and close; when that key is let
+      go, its own title screen starts with its title already stored
     - any other key: do what that key does and close (INFO just closes)
     - nothing for TITLE_SHOW_MS: close
 
@@ -172,13 +176,13 @@ def slot_title_script(key):
               "last = p",                                    # started this script reads as still down
               "IF p != 0",
               "IF p == want"] + _per_key("want", open_) + let_go + ["LBREAK", "END_IF",
-              f"IF p <= {keys.SLOT_KEYS[-1]}"] + _per_key("p", press) + [
-              "want = p", "shown = 0", "start = _TIME_MS"] + loading + ["CONTINUE", "END_IF"]
+              f"IF p <= {keys.SLOT_KEYS[-1]}"] + _per_key("p", press) + ["LBREAK", "END_IF"]
     lines += _per_key("p", other) + let_go + ["LBREAK", "END_IF", "END_IF", "DELAY 20", "END_WHILE", "OLED_RESTORE"]
     return "\n".join(lines)
 
 
 TITLE_SHOW_MS = 4000
+TITLE_WAIT_MS = 120          # press script: time for the daemon to store the title
 
 INFO_SCRIPT = """\
 // devinducky summary. The daemon packs a byte per value:

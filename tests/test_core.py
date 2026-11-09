@@ -127,7 +127,7 @@ def test_build_profile(tmp_path):
     conf = open(f"{pdir}/config.txt").read().splitlines()
     assert "z1 S1" in conf and "dr 1" in conf and "z13 Fix C" in conf and "dr 20" in conf
     assert all(f"z{k} " in "\n".join(conf) for k in range(1, 27))
-    assert open(f"{pdir}/key1.txt").read() == keys.HOTKEY_FOR[keys.Event("press", 1)].ducky() + "\n"
+    assert open(f"{pdir}/key1.txt").read().splitlines() == [keys.HOTKEY_FOR[keys.Event("press", 1)].ducky(), "DELAY 120"]
     release = open(f"{pdir}/key1-release.txt").read().splitlines()
     assert not any(l.startswith("_GV") for l in release)     # key scripts never write GVs
 
