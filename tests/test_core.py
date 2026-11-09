@@ -2,8 +2,7 @@ import struct
 
 import pytest
 
-from devinducky import browser, hid, keys, state
-from devinducky.bindings import Bindings
+from devinducky import hid, keys, state
 from devinducky.config import DEFAULTS
 from devinducky.input import HoldClassifier, decode
 
@@ -44,43 +43,6 @@ def test_summary_gvs():
 def test_parse_ts():
     assert state.parse_ts("1970-01-01T00:01:00Z") == 60
     assert state.parse_ts(5) == 5.0 and state.parse_ts("junk") is None
-
-
-# ---------- bindings ----------
-
-def test_bind_move_unbind_roundtrip(tmp_path):
-    b = Bindings(str(tmp_path / "b.json"), 12)
-    assert b.bind(0, "s1") is None
-    assert b.bind(3, "s2") is None
-    assert b.bind(5, "s1") == 0                   # moves from slot 0
-    assert b.get(0) is None and b.get(5) == "s1"
-    assert b.bind(3, "s3") is None                # rebind replaces s2
-    assert b.slot_of("s2") is None
-    b.save()
-    b2 = Bindings(str(tmp_path / "b.json"), 12).load()
-    assert b2.slots == {3: "s3", 5: "s1"}
-    assert b2.unbind(3) == "s3" and b2.first_free() == 0
-
-
-def test_bindings_ignore_bad_file(tmp_path):
-    p = tmp_path / "b.json"
-    p.write_text('{"0": "a", "40": "out-of-range", "1": ""}')
-    assert Bindings(str(p), 12).load().slots == {0: "a"}
-    p.write_text("not json")
-    assert Bindings(str(p), 12).load().slots == {}
-
-
-# ---------- browser URL parsing ----------
-
-@pytest.mark.parametrize("url,expected", [
-    ("https://app.devin.ai/sessions/7f29616947aa4d3fa98317c42e008493", "7f29616947aa4d3fa98317c42e008493"),
-    ("https://app.devin.ai/sessions/7f29616947aa4d3fa98317c42e008493?tab=shell#x", "7f29616947aa4d3fa98317c42e008493"),
-    ("https://app.devin.ai/sessions/devin-abc123", "abc123"),
-    ("https://app.devin.ai/sessions", None),
-    ("https://github.com/foo", None), ("", None), (None, None),
-])
-def test_session_id_from_url(url, expected):
-    assert browser.session_id_from_url(url, DEFAULTS["session_url_regex"]) == expected
 
 
 # ---------- HID packets ----------
@@ -160,19 +122,11 @@ def test_build_profile(tmp_path):
     assert open(f"{pdir}/key1.txt").read() == keys.HOTKEY_FOR[keys.Event("down", 1)].ducky() + "\n"
 
 
-def test_parse_tab_list():
-    out = "1\t1\thttps://a.com/x,y\n1\t2\thttps://app.devin.ai/sessions/abc\n2\t1\t\njunk\n"
-    assert browser.parse_tab_list(out) == [
-        (1, 1, "https://a.com/x,y"), (1, 2, "https://app.devin.ai/sessions/abc"), (2, 1, "")]
-
-
 def test_top_wheel_switches_to_session_after_settling(tmp_path, monkeypatch):
     from devinducky import daemon
     from devinducky.render import Frame
     d = daemon.Daemon.__new__(daemon.Daemon)
-    d.bindings = Bindings(str(tmp_path / "b.json"), keys.NUM_SLOTS)
-    d.bindings.bind(0, "aaa")
-    d.bindings.bind(3, "ddd")
+    d.slots = ["aaa", None, None, "ddd"] + [None] * 8
     d.cursor, d.goto_due, d.sessions, d.frame = None, None, {}, Frame()
     opened = []
     monkeypatch.setattr(d, "open_slot", opened.append, raising=False)
@@ -190,25 +144,15 @@ def test_mods_from_event_flags():
     assert decode(mods_from_flags(0x40000 | 0x80000 | 0x20000 | 0x100000), "f13") is None
 
 
-def test_desktop_session_link_and_title_match(tmp_path):
-    import json, sqlite3
+def test_desktop_open_session_launches_app_when_needed(monkeypatch):
     from devinducky import desktop
     assert desktop.session_link("abc") == "devin://acp/session?sessionId=devin-abc&connectorId=devin-cloud"
-    db = tmp_path / "state.vscdb"
-    con = sqlite3.connect(db)
-    con.execute("create table ItemTable (key text, value blob)")
-    rows = [("aaa", "Fix bug", "2026-01-01"), ("bbb", "Fix bug", "2026-02-01"), ("ccc", "Other", "2026-03-01")]
-    for sid, title, ts in rows:
-        con.execute("insert into ItemTable values (?, ?)", (f"{desktop._SESSION_KEY}devin-{sid}",
-                    json.dumps({"info": {"title": title, "updatedAt": ts}})))
-    con.execute("insert into ItemTable values (?, ?)", ("windsurf.acp.sessioninfo.session.acp/devin-cli/x", "{}"))
-    con.commit()
-    con.close()
-    sessions = desktop.stored_sessions(str(db))
-    assert sorted(s[0] for s in sessions) == ["aaa", "bbb", "ccc"]
-    assert desktop.match_title("Fix bug", sessions) == "bbb"
-    assert desktop.match_title("Session", sessions) is None
-    assert desktop.match_title("Fix bug fawkes — logo.svg", sessions) == "bbb"
-    assert desktop.match_title("Fix bugs fawkes — logo.svg", sessions) is None
-    longer = sessions + [("ddd", "Fix bug fawkes", "2025-01-01")]
-    assert desktop.match_title("Fix bug fawkes — logo.svg", longer) == "ddd"
+    up = iter([False, False, True])
+    calls = []
+    monkeypatch.setattr(desktop, "running", lambda: next(up, True))
+    monkeypatch.setattr(desktop, "osascript", lambda script, timeout=5: calls.append(("osa", script)))
+    monkeypatch.setattr(desktop.subprocess, "run", lambda args, **kw: calls.append(tuple(args)))
+    monkeypatch.setattr(desktop.time, "sleep", lambda s: None)
+    assert desktop.open_session("abc") is True
+    assert calls[0] == ("open", "-b", desktop.BUNDLE_ID)
+    assert calls[-1] == ("open", "-b", desktop.BUNDLE_ID, desktop.session_link("abc"))

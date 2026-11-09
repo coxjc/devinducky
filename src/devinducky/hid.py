@@ -163,6 +163,9 @@ class Pad:
 # One HID session at a time: the renderer and the title writer run on different
 # threads, and a reply read by the wrong handle would be lost.
 IO_LOCK = threading.Lock()
+# Set while an urgent write (a slot title, which must land before the key is let
+# go) waits for IO_LOCK; long LED batches check it and stop early.
+PRIORITY = threading.Event()
 
 
 def with_retry(fn, attempts=5, delay_s=0.2):

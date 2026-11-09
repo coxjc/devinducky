@@ -84,3 +84,46 @@ def test_recents_drop_session_archived_later():
     r.refresh()
     a.update(is_archived=True, updated_at=10**10)
     assert [s["session_id"] for s in r.refresh()] == ["b"]
+
+
+# ---------- daemon ----------
+
+def _daemon(monkeypatch):
+    from devinducky import daemon, hid
+    from devinducky.render import Frame
+    d = daemon.Daemon.__new__(daemon.Daemon)
+    import threading
+    d.lock, d.dry_pad, d.frame = threading.RLock(), False, Frame()
+    d.slots = ["aaa"] + [None] * 11
+    d.sessions = {"aaa": {"session_id": "aaa", "title": "Fix the bug"}}
+    writes = []
+
+    class FakePad:
+        def write_gv(self, values):
+            writes.append(dict(values))
+
+    monkeypatch.setattr(hid, "with_retry", lambda fn, **kw: fn(FakePad()))
+    return d, writes
+
+
+def test_key_down_sends_title_then_handshake(monkeypatch):
+    d, writes = _daemon(monkeypatch)
+    d.send_title(1)
+    assert writes == [oled.title_gvs("Fix the bug"), {28: 1}]
+
+
+def test_key_down_on_empty_slot_sends_only_empty_handshake(monkeypatch):
+    d, writes = _daemon(monkeypatch)
+    d.send_title(2)
+    assert writes == [{28: 102}]
+
+
+def test_hold_opens_in_app_and_tap_does_nothing_on_the_mac(monkeypatch):
+    d, _ = _daemon(monkeypatch)
+    opened = []
+    monkeypatch.setattr(d, "open_slot", opened.append, raising=False)
+    d.handle("tap", 1)
+    assert opened == []
+    d.handle("hold", 1)
+    d.handle("hold", 2)                   # empty slot
+    assert opened == [0]
