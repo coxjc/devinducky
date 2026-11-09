@@ -232,7 +232,7 @@ class Daemon:
             self.frame.set_effect(led, "flash", RED, 1.0)
             return
         if not sid:
-            log.info("S%d: no saved session titled %r in the Devin app", slot + 1, title)
+            log.info("S%d: no session titled %r for the Devin app's front window", slot + 1, title)
             self.frame.set_effect(led, "flash", RED, 1.0)
             return
         self.bind(slot, sid)
