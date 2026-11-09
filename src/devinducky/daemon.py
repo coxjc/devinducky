@@ -8,10 +8,11 @@ import threading
 import time
 import urllib.request
 
-from . import auth, browser, keys, state
+from . import auth, browser, desktop, keys, state
 from .bindings import Bindings
 from .config import BINDINGS_FILE
 from .devin import Devin, DevinError
+from .browser import BrowserError
 from .input import PadInput
 from .render import Frame, Renderer, WHITE
 
@@ -185,8 +186,19 @@ class Daemon:
         elif key in (keys.ENC1_CW, keys.ENC1_CCW):
             self.move_cursor(1 if key == keys.ENC1_CW else -1)
 
+    def _front_is_desktop(self):
+        if not self.cfg["desktop_app"]:
+            return False
+        try:
+            return browser.frontmost_app() == desktop.APP
+        except BrowserError:
+            return False
+
     def bind_from_tab(self, slot):
         led = keys.led_of_slot(slot)
+        if self._front_is_desktop():
+            self.bind_from_desktop(slot)
+            return
         try:
             app, url = browser.active_tab_url(self.cfg["browsers"])
         except browser.BrowserError as e:
@@ -208,6 +220,25 @@ class Daemon:
                 log.info("S%d: active %s tab is not a Devin session", slot + 1, app)
                 self.frame.set_effect(led, "flash", RED, 1.0)
             return
+        self.bind(slot, sid)
+
+    def bind_from_desktop(self, slot):
+        """Like bind_from_tab, for the desktop app. Never unbinds: a miss may just be an unreadable title."""
+        led = keys.led_of_slot(slot)
+        try:
+            title, sid = desktop.active_session_id(self.devin)
+        except (BrowserError, DevinError, subprocess.TimeoutExpired) as e:
+            log.warning("could not read the Devin app's session: %s", e)
+            self.frame.set_effect(led, "flash", RED, 1.0)
+            return
+        if not sid:
+            log.info("S%d: no saved session titled %r in the Devin app", slot + 1, title)
+            self.frame.set_effect(led, "flash", RED, 1.0)
+            return
+        self.bind(slot, sid)
+
+    def bind(self, slot, sid):
+        led = keys.led_of_slot(slot)
         try:
             s = self.devin.get_session(sid)
         except DevinError as e:
@@ -234,12 +265,18 @@ class Daemon:
         threading.Thread(target=self._focus_or_open, args=(slot, sid, url), daemon=True).start()
 
     def _focus_or_open(self, slot, sid, url):
-        """Switch to the session's tab if it's already open somewhere; else open a new one."""
+        """Switch to the session in the desktop app if that's in front, else to its open browser
+        tab, else to the desktop app if it's running; failing all that, open a new tab."""
         with self.nav_lock:
             t = time.monotonic()
+            if self._front_is_desktop() and desktop.focus_session(sid):
+                log.info("S%d: shown in the Devin app (%.2fs)", slot + 1, time.monotonic() - t)
+                return
             app = browser.focus_tab(self.cfg["browsers"], sid)
             if app:
                 log.info("S%d: focused its %s tab (%.2fs)", slot + 1, app, time.monotonic() - t)
+            elif self.cfg["desktop_app"] and desktop.focus_session(sid):
+                log.info("S%d: no open tab, shown in the Devin app (%.2fs)", slot + 1, time.monotonic() - t)
             else:
                 open_url(url)
                 log.info("S%d: no open tab, opened %s (%.2fs)", slot + 1, url, time.monotonic() - t)
