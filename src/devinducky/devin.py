@@ -50,6 +50,10 @@ class Devin:
         params = [("session_ids", sid) for sid in session_ids] + [("first", 200)]
         return self._req("GET", self._org("/sessions"), params=params).get("items", [])
 
+    def recent_sessions(self, first=200):
+        """The org's most recent sessions, newest first."""
+        return self._req("GET", self._org("/sessions"), params=[("first", first)]).get("items", [])
+
     def create_session(self, preset):
         body = {k: preset[k] for k in
                 ("prompt", "playbook_id", "repos", "title", "devin_mode", "max_acu_limit")

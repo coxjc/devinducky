@@ -76,11 +76,25 @@ def cmd_test_pad(args):
 
 
 def cmd_which_tab(args):
-    from . import browser
+    from . import auth, browser, desktop
+    from .devin import Devin, DevinError
     cfg = config.load()
+    in_app = cfg["desktop_app"] and browser.running(desktop.APP)
+    if in_app:
+        try:
+            devin = Devin(auth.api_key())
+            devin.whoami()
+            title, sid = desktop.active_session_id(devin)
+            print(f"{desktop.APP} app: {title}")
+            print(f"session: {sid or '(no session with that title)'}")
+        except (browser.BrowserError, DevinError) as e:
+            print(f"{desktop.APP} app: error: {e}")
     try:
         app, url = browser.active_tab_url(cfg["browsers"])
     except browser.BrowserError as e:
+        if in_app:
+            print(f"browser: {e}")
+            return
         sys.exit(f"error: {e}")
     print(f"{app}: {url}")
     sid = browser.session_id_from_url(url, cfg["session_url_regex"])

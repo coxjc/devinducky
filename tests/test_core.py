@@ -188,3 +188,23 @@ def test_mods_from_event_flags():
     from devinducky.input import mods_from_flags
     assert mods_from_flags(0x40000 | 0x80000 | 0x800000) == {"ctrl", "alt"}   # Fn flag ignored
     assert decode(mods_from_flags(0x40000 | 0x80000 | 0x20000 | 0x100000), "f13") is None
+
+
+def test_desktop_session_link_and_title_match(tmp_path):
+    import json, sqlite3
+    from devinducky import desktop
+    assert desktop.session_link("abc") == "devin://acp/session?sessionId=devin-abc&connectorId=devin-cloud"
+    db = tmp_path / "state.vscdb"
+    con = sqlite3.connect(db)
+    con.execute("create table ItemTable (key text, value blob)")
+    rows = [("aaa", "Fix bug", "2026-01-01"), ("bbb", "Fix bug", "2026-02-01"), ("ccc", "Other", "2026-03-01")]
+    for sid, title, ts in rows:
+        con.execute("insert into ItemTable values (?, ?)", (f"{desktop._SESSION_KEY}devin-{sid}",
+                    json.dumps({"info": {"title": title, "updatedAt": ts}})))
+    con.execute("insert into ItemTable values (?, ?)", ("windsurf.acp.sessioninfo.session.acp/devin-cli/x", "{}"))
+    con.commit()
+    con.close()
+    sessions = desktop.stored_sessions(str(db))
+    assert sorted(s[0] for s in sessions) == ["aaa", "bbb", "ccc"]
+    assert desktop.match_title("Fix bug", sessions) == "bbb"
+    assert desktop.match_title("Session", sessions) is None

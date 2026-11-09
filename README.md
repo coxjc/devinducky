@@ -24,7 +24,16 @@ macOS only, because it uses AppleScript to read and focus browser tabs.
  lower encoder: rotate = system volume, push = refresh
 ```
 
-"Go to that session" first looks for a tab that already has the session open (Chrome, Arc, Brave, Edge, Chromium, Safari) and brings it to the front. It opens a new tab only if there isn't one.
+"Go to that session" first looks for a tab that already has the session open (Chrome, Arc, Brave, Edge, Chromium, Safari) and brings it to the front. If there isn't one and the Devin desktop app is running, it shows the session there. It opens a new tab only if neither works. When the desktop app is in front, it goes straight to the app.
+
+### Devin desktop app
+
+Cloud sessions in the desktop app are the same sessions the browser shows, so LEDs and polling work the same.
+
+- **Tap** opens the session in the app through its `devin://acp/session?sessionId=devin-<id>&connectorId=devin-cloud` link. If the app hasn't loaded that session yet, the app may open it in your default browser instead.
+- **Hold** with the app in front binds the session in its front window. The app doesn't expose session IDs, so devinducky matches the window title against the app's saved sessions, then against your recent sessions from the API. If the title is a generic label such as "Session", the key flashes red and nothing changes. A hold in the app never unbinds.
+- Local "Devin Local" sessions have no API ID, so they can't be bound.
+- Set `desktop_app = false` in `config.toml` to turn this off.
 
 A newly launched session opens in your browser. Hold an empty slot to bind it.
 
