@@ -50,7 +50,7 @@ Notifications fire for the sessions on the keys when one starts waiting, finishe
 
 ## How it works
 
-The duckyPad can't report key presses over HID. Each key's on-press and on-release scripts therefore type a unique hotkey, such as `Ctrl+Alt+F13`. The daemon listens for these with `pynput` and times the gap between press and release to tell a tap from a hold. The session keys' title screen runs on the pad and handles keys itself while it's up.
+The duckyPad can't report key presses over HID. Each key's script therefore types a unique hotkey, such as `Ctrl+Alt+F13`, and the daemon listens for these with `pynput`. A session key types one hotkey when pressed ("show my title"); its title screen, which runs on the pad, types an "open" hotkey when the same key is tapped again.
 
 In the other direction, the daemon drives the pad over HID. It sets each key's LED and writes global variables (`_GV20`–`_GV27`) that the INFO key's script reads. It polls the Devin v3 API for sessions updated since the last poll and reads a session's messages only when it may have moved into the top 12.
 
@@ -71,7 +71,7 @@ In the other direction, the daemon drives the pad over HID. It sets each key's L
 4. Grant **Accessibility** to your terminal in System Settings › Privacy & Security. Without it, no key presses are seen.
 5. `devinducky test-pad` cycles the LEDs and prints key down/up events with timings.
 6. `devinducky recents` prints the session each key will hold.
-7. `devinducky up` starts the daemon in the background. Use `devinducky run -v` instead to run it in the foreground while debugging. The first hold triggers macOS's **Automation** prompt for the Devin app.
+7. `devinducky up` starts the daemon in the background. Use `devinducky run -v` instead to run it in the foreground while debugging. The first time a session opens, macOS asks to allow **Automation** for the Devin app.
 
 ### Running in the background
 
