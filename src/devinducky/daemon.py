@@ -262,9 +262,10 @@ class Daemon:
             return
         s = self.sessions.get(sid)
         url = s["url"] if s and s.get("url") else f"https://app.devin.ai/sessions/{sid}"
-        threading.Thread(target=self._focus_or_open, args=(slot, sid, url), daemon=True).start()
+        title = (s or {}).get("title")
+        threading.Thread(target=self._focus_or_open, args=(slot, sid, url, title), daemon=True).start()
 
-    def _focus_or_open(self, slot, sid, url):
+    def _focus_or_open(self, slot, sid, url, title=None):
         """Switch to the session in the desktop app if that's in front, else to its open browser
         tab, else to the desktop app if it's running; failing all that, open a new tab."""
         with self.nav_lock:
@@ -272,7 +273,7 @@ class Daemon:
             if self._front_is_desktop() and desktop.focus_session(sid):
                 log.info("S%d: shown in the Devin app (%.2fs)", slot + 1, time.monotonic() - t)
                 return
-            app = browser.focus_tab(self.cfg["browsers"], sid)
+            app = browser.focus_tab(self.cfg["browsers"], sid, title)
             if app:
                 log.info("S%d: focused its %s tab (%.2fs)", slot + 1, app, time.monotonic() - t)
             elif self.cfg["desktop_app"] and desktop.focus_session(sid):

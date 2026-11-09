@@ -4,6 +4,8 @@ import logging
 import re
 import subprocess
 
+from . import firefox
+
 log = logging.getLogger(__name__)
 
 # AppleScript for the active tab's URL, per browser family.
@@ -27,9 +29,24 @@ def _osascript(script, timeout=5):
     return out.stdout.strip()
 
 
+def supported(app):
+    return app in SCRIPTS or app in firefox.BUNDLE_IDS
+
+
 def frontmost_app():
-    return _osascript('tell application "System Events" to get name of first application process '
+    # The displayed name, because some process names differ from the app's
+    # ("firefox" for "Firefox Developer Edition").
+    return _osascript('tell application "System Events" to get displayed name of first application process '
                       'whose frontmost is true')
+
+
+def _active_url(app):
+    if app in firefox.BUNDLE_IDS:
+        try:
+            return firefox.active_url(app)
+        except firefox.FirefoxError as e:
+            raise BrowserError(str(e)) from e
+    return _osascript(SCRIPTS[app].format(app=app))
 
 
 def running(app):
@@ -45,13 +62,12 @@ def active_tab_url(browsers):
     order = ([front] if front in browsers else []) + [b for b in browsers if b != front]
     errors = []
     for app in order:
-        script = SCRIPTS.get(app)
-        if not script:
+        if not supported(app):
             continue
         try:
             if app != front and not running(app):
                 continue
-            return app, _osascript(script.format(app=app))
+            return app, _active_url(app)
         except (BrowserError, subprocess.TimeoutExpired) as e:
             errors.append(f"{app}: {e}")
     raise BrowserError("; ".join(errors) or "no supported browser is running")
@@ -89,17 +105,23 @@ def parse_tab_list(out):
     return tabs
 
 
-def focus_tab(browsers, needle):
+def focus_tab(browsers, needle, title=None):
     """Bring an already-open tab whose URL contains `needle` to the front.
 
     Only browsers that are already running are searched (so nothing gets launched).
+    Firefox doesn't expose tab URLs, so there it looks for the Devin page titled
+    `title` (the session's title) instead, and is skipped when `title` is empty.
     Returns the browser name if a tab was focused, else None.
     """
     for app in browsers:
-        if app not in SCRIPTS:
+        if not supported(app):
             continue
         try:
             if not running(app):
+                continue
+            if app in firefox.BUNDLE_IDS:
+                if title and firefox.focus_tab_titled(app, firefox.tab_title(title)):
+                    return app
                 continue
             tabs = parse_tab_list(_osascript(_LIST_TABS.replace("{app}", app)))
             hit = next(((w, t) for w, t, url in tabs if needle in url), None)
@@ -108,7 +130,7 @@ def focus_tab(browsers, needle):
             tpl = _FOCUS.get(app, _FOCUS["chromium"])
             _osascript(tpl.replace("{app}", app).replace("{w}", str(hit[0])).replace("{t}", str(hit[1])))
             return app
-        except (BrowserError, subprocess.TimeoutExpired) as e:
+        except (BrowserError, firefox.FirefoxError, subprocess.TimeoutExpired) as e:
             log.warning("focus_tab %s: %s", app, e)
             continue
     return None

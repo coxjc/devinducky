@@ -208,3 +208,20 @@ def test_desktop_session_link_and_title_match(tmp_path):
     assert sorted(s[0] for s in sessions) == ["aaa", "bbb", "ccc"]
     assert desktop.match_title("Fix bug", sessions) == "bbb"
     assert desktop.match_title("Session", sessions) is None
+
+
+def test_firefox_routes_through_accessibility(monkeypatch):
+    from devinducky import firefox
+    ff = "Firefox Developer Edition"
+    monkeypatch.setattr(browser, "frontmost_app", lambda: ff)
+    monkeypatch.setattr(browser, "running", lambda app: app == ff)
+    monkeypatch.setattr(browser, "_osascript", lambda s: (_ for _ in ()).throw(AssertionError(s)))
+    monkeypatch.setattr(firefox, "active_url", lambda app: "https://app.devin.ai/sessions/abc")
+    assert browser.active_tab_url(["Google Chrome", ff]) == (ff, "https://app.devin.ai/sessions/abc")
+
+    pressed = []
+    monkeypatch.setattr(firefox, "focus_tab_titled", lambda app, title: pressed.append(title) or True)
+    assert browser.focus_tab([ff], "abc", "Fix bug") == ff
+    assert pressed == ["Fix bug - Devin"]
+    assert browser.focus_tab([ff], "abc", None) is None   # no title: can't find the tab
+    assert pressed == ["Fix bug - Devin"]

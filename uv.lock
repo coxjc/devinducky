@@ -41,6 +41,8 @@ dependencies = [
     { name = "hidapi" },
     { name = "httpx" },
     { name = "pynput" },
+    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
 ]
 
 [package.dev-dependencies]
@@ -53,6 +55,8 @@ requires-dist = [
     { name = "hidapi", specifier = ">=0.14" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "pynput", specifier = ">=1.7" },
+    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'", specifier = ">=10" },
+    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=10" },
 ]
 
 [package.metadata.requires-dev]

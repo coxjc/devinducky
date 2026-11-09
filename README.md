@@ -24,7 +24,11 @@ macOS only, because it uses AppleScript to read and focus browser tabs.
  lower encoder: rotate = system volume, push = refresh
 ```
 
-"Go to that session" first looks for a tab that already has the session open (Chrome, Arc, Brave, Edge, Chromium, Safari) and brings it to the front. If there isn't one and the Devin desktop app is running, it shows the session there. It opens a new tab only if neither works. When the desktop app is in front, it goes straight to the app.
+"Go to that session" first looks for a tab that already has the session open (Chrome, Arc, Brave, Edge, Chromium, Safari, Firefox) and brings it to the front. If there isn't one and the Devin desktop app is running, it shows the session there. It opens a new tab only if neither works. When the desktop app is in front, it goes straight to the app.
+
+### Firefox
+
+Firefox (including Developer Edition and Nightly) has no AppleScript for tabs, so devinducky reads it through the Accessibility API, using the Accessibility permission the daemon already has. Hold reads the selected tab's URL as usual. Firefox doesn't expose other tabs' URLs, so tap finds the session's tab by its page title, `<session title> - Devin`. A session with no title yet, or a tab whose title Devin hasn't set, isn't found, and tap opens a new tab instead.
 
 ### Devin desktop app
 
@@ -97,7 +101,7 @@ Every key is optional. The defaults are in [`src/devinducky/config.py`](src/devi
 ```toml
 poll_s = 10
 hold_ms = 700
-browsers = ["Google Chrome", "Arc", "Safari"]   # search / focus order
+browsers = ["Google Chrome", "Arc", "Safari", "Firefox Developer Edition"]   # search / focus order
 pad_profile = 0                     # only paint when this pad profile number is active (0 = any)
 new_session_url = "https://app.devin.ai/"   # what the NEW key opens
 notify = { waiting = true, finished = true, error = true }   # macOS banners

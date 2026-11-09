@@ -16,7 +16,8 @@ DEFAULTS = {
     "hold_ms": 700,
     "arm_s": 3,
     "resync_s": 10,
-    "browsers": ["Google Chrome", "Arc", "Safari", "Brave Browser", "Microsoft Edge"],
+    "browsers": ["Google Chrome", "Arc", "Safari", "Brave Browser", "Microsoft Edge",
+                 "Firefox", "Firefox Developer Edition"],
     "desktop_app": True,       # also find and show sessions in the Devin desktop app
     "session_url_regex": r"app\.devin\.ai/sessions/((?:devin-)?[A-Za-z0-9]+)",
     "dashboard_url": "https://app.devin.ai/sessions",
