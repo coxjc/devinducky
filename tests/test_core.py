@@ -208,3 +208,7 @@ def test_desktop_session_link_and_title_match(tmp_path):
     assert sorted(s[0] for s in sessions) == ["aaa", "bbb", "ccc"]
     assert desktop.match_title("Fix bug", sessions) == "bbb"
     assert desktop.match_title("Session", sessions) is None
+    assert desktop.match_title("Fix bug fawkes — logo.svg", sessions) == "bbb"
+    assert desktop.match_title("Fix bugs fawkes — logo.svg", sessions) is None
+    longer = sessions + [("ddd", "Fix bug fawkes", "2025-01-01")]
+    assert desktop.match_title("Fix bug fawkes — logo.svg", longer) == "ddd"

@@ -65,9 +65,14 @@ def stored_sessions(db=STATE_DB):
 
 
 def match_title(title, sessions):
-    """The most recently updated session titled `title`, else None."""
-    hits = [s for s in sessions if s[1] and s[1] == title]
-    return max(hits, key=lambda s: s[2])[0] if hits else None
+    """The session whose title `title` starts with, else None.
+
+    The window title is "<session title>", or "<session title> <folder> — <open file>"
+    when the session has a workspace open, so a session title that is a prefix ending
+    at a space matches too. The longest such title wins, then the most recently updated.
+    """
+    hits = [s for s in sessions if s[1] and (title == s[1] or title.startswith(s[1] + " "))]
+    return max(hits, key=lambda s: (len(s[1]), s[2]))[0] if hits else None
 
 
 def active_session_id(devin=None):
