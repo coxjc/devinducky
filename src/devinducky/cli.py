@@ -140,8 +140,9 @@ def slot_title_script(key):
     - any other key: do what that key does and close (INFO just closes)
     - nothing for TITLE_SHOW_MS: close
 
-    Each key is waited on until it's let go before acting, so the firmware doesn't
-    see its release and start a second title screen. Scripts never write _GVs (the
+    The firmware reports the key that started a script as still pressed, so a key
+    only counts when the reading changes (starting from this key), and a key that
+    ends the screen is waited on (up to 1 s) until it's let go. Scripts never write _GVs (the
     firmware refuses that). The text is _GV0.._GV26 copied to scratch memory and
     printed a row at a time with PUTS (bit 29 = print to the OLED); see oled.py.
     """
@@ -158,18 +159,21 @@ def slot_title_script(key):
     other = {ev.key: hk.ducky() for ev, hk in keys.HOTKEY_FOR.items()
              if ev.kind == "press" and keys.slot_of(ev.key) is None}
     other[keys.ENC2_CW], other[keys.ENC2_CCW] = "MK_VOLUP", "MK_VOLDOWN"
-    lines = [f"VAR want = {key}", "VAR shown = 0", "VAR start = _TIME_MS"] + loading
+    let_go = ["VAR t0 = _TIME_MS",                           # wait (up to 1 s) for p to be let go
+              "WHILE _READKEY == p && _TIME_MS - t0 < 1000",
+              "DELAY 10",
+              "END_WHILE"]
+    lines = [f"VAR want = {key}", "VAR shown = 0", f"VAR last = {key}", "VAR start = _TIME_MS"] + loading
     lines += [f"WHILE _TIME_MS - start < {TITLE_SHOW_MS}",
               f"IF _GV{oled.GV_HANDSHAKE} == want && shown != want"] + draw + ["shown = want", "END_IF",
               "VAR p = _READKEY",
+              "IF p != last",                                # act on a change only: the key that
+              "last = p",                                    # started this script reads as still down
               "IF p != 0",
-              "WHILE _READKEY == p",
-              "DELAY 10",
-              "END_WHILE",
-              "IF p == want"] + _per_key("want", open_) + ["LBREAK", "END_IF",
+              "IF p == want"] + _per_key("want", open_) + let_go + ["LBREAK", "END_IF",
               f"IF p <= {keys.SLOT_KEYS[-1]}"] + _per_key("p", press) + [
               "want = p", "shown = 0", "start = _TIME_MS"] + loading + ["CONTINUE", "END_IF"]
-    lines += _per_key("p", other) + ["LBREAK", "END_IF", "DELAY 20", "END_WHILE", "OLED_RESTORE"]
+    lines += _per_key("p", other) + let_go + ["LBREAK", "END_IF", "END_IF", "DELAY 20", "END_WHILE", "OLED_RESTORE"]
     return "\n".join(lines)
 
 

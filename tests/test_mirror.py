@@ -124,9 +124,11 @@ def test_open_event_opens_in_app_and_press_does_nothing_on_the_mac(monkeypatch):
     d, _ = _daemon(monkeypatch)
     opened = []
     monkeypatch.setattr(d, "open_slot", opened.append, raising=False)
+    d.last_open = {}
     d.handle("press", 1)
     assert opened == []
     d.handle("open", 1)
+    d.handle("open", 1)                   # pad repeating itself: ignored
     assert opened == [0]
 
 
@@ -135,7 +137,8 @@ def test_open_event_opens_in_app_and_press_does_nothing_on_the_mac(monkeypatch):
 def test_slot_title_script_redraws_opens_and_passes_keys_through():
     from devinducky import cli, keys
     lines = cli.slot_title_script(3).split("\n")
-    assert lines[0] == "VAR want = 3"
+    assert lines[0] == "VAR want = 3" and "VAR last = 3" in lines   # its own key counts as held
+    assert "IF p != last" in lines
     assert "IF _GV27 == want && shown != want" in lines
     assert "POKE32(62464, _GV0)" in lines and "POKE32(62568, _GV26)" in lines and "POKE8(62572, 0)" in lines
     assert "PUTS(62536 | (18 << 16) | (1 << 29))" in lines          # 5th row (status) starts at byte 72
@@ -159,3 +162,17 @@ def test_recents_keeps_devins_last_message():
     r = Recents(Dv([_s("a", 1, 7)], {}))
     r.refresh()
     assert r.last_devin_text == {"a": "Which items?"}
+
+
+def test_open_while_another_is_opening_is_dropped(monkeypatch):
+    from devinducky import daemon, desktop
+    d, _ = _daemon(monkeypatch)
+    d.nav_lock = __import__("threading").Lock()
+    calls = []
+    monkeypatch.setattr(desktop, "open_session", lambda sid: calls.append(sid) or "sidebar")
+    d.nav_lock.acquire()
+    d._open("S1", "aaa")
+    assert calls == []
+    d.nav_lock.release()
+    d._open("S1", "aaa")
+    assert calls == ["aaa"]

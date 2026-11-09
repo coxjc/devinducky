@@ -18,6 +18,7 @@ log = logging.getLogger("devinducky")
 
 GREEN, RED, DIM = (0, 255, 60), (255, 0, 0), (40, 40, 40)
 CURSOR_TIMEOUT_S = 10
+OPEN_REPEAT_S = 3.0             # a second "open" for the same key this soon is ignored
 GOTO_SETTLE_S = 0.35            # open the cursor's session once the wheel stops turning
 API_OK, API_AUTH, API_NET = 0, 1, 2
 GV_HANDSHAKE = oled.GV_HANDSHAKE
@@ -44,7 +45,8 @@ class Daemon:
         self.cursor = None            # slot index
         self.cursor_moved = 0.0
         self.goto_due = None          # monotonic time to open the cursor's session
-        self.nav_lock = threading.Lock()   # one app switch at a time, in order
+        self.nav_lock = threading.Lock()   # one app switch at a time; others are dropped
+        self.last_open = {}           # slot -> monotonic time of its last open
         self.armed = {}               # launch index -> monotonic deadline
         self.api_health = API_OK
         self.failures = 0
@@ -200,6 +202,11 @@ class Daemon:
         slot = keys.slot_of(key)
         if slot is not None:
             if kind == "open":           # tapped again while its title was showing
+                now = time.monotonic()
+                if now - self.last_open.get(slot, -OPEN_REPEAT_S) < OPEN_REPEAT_S:
+                    log.info("S%d: ignoring a repeated open", slot + 1)
+                    return
+                self.last_open[slot] = now
                 if self.slots[slot]:
                     self.frame.set_effect(keys.led_of_slot(slot), "fade", WHITE, 0.6)
                 self.open_slot(slot)
@@ -235,13 +242,18 @@ class Daemon:
         threading.Thread(target=self._open, args=(f"S{slot + 1}", sid), daemon=True).start()
 
     def _open(self, label, sid):
-        with self.nav_lock:
+        if not self.nav_lock.acquire(blocking=False):
+            log.info("%s: another session is still opening; skipped", label)
+            return
+        try:
             t = time.monotonic()
             how = desktop.open_session(sid)
             if how:
                 log.info("%s: shown in the Devin app via %s (%.2fs)", label, how, time.monotonic() - t)
             else:
                 log.warning("%s: couldn't show %s in the Devin app", label, sid)
+        finally:
+            self.nav_lock.release()
 
     def occupied(self):
         return [i for i, sid in enumerate(self.slots) if sid]
