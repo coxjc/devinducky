@@ -148,6 +148,8 @@ def test_slot_title_script_redraws_opens_and_passes_keys_through():
     assert keys.HOTKEY_FOR[keys.Event("press", 7)].ducky() in lines     # another slot: ask for its title
     assert keys.HOTKEY_FOR[keys.Event("press", keys.LAUNCH_KEYS[0])].ducky() in lines   # other keys still work
     assert lines[-1] == "OLED_RESTORE"
+    declared = [l.split()[1] for l in lines if l.startswith("VAR ")]
+    assert len(declared) == len(set(declared))                          # the compiler rejects re-declaring
 
 
 def test_recents_keeps_devins_last_message():
