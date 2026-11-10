@@ -42,7 +42,7 @@ INFO shows a summary on the OLED for 5 seconds, or until you press another key. 
 | cyan | starting / resuming |
 | green (dims after 30 min) | finished |
 | red | error, or suspended for limits / credits |
-| dim white | suspended (inactivity / you paused it) |
+| soft pink | asleep (suspended for inactivity, or you paused it) |
 | very dim | exited or archived |
 | off | no session (fewer than 12) |
 
