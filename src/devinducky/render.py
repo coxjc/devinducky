@@ -120,6 +120,8 @@ class Renderer:
                 if info.profile != self.pad_profile:
                     return False
             for i, c in changed:
+                if hid.PRIORITY.is_set():
+                    return True                       # the rest goes out next frame
                 pad.set_led(i, c)
                 self.sent[i] = c
             if gv_changed:

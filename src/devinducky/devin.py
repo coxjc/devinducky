@@ -55,6 +55,28 @@ class Devin:
         params = [("first", first)] + ([("user_ids", user_id)] if user_id else [])
         return self._req("GET", self._org("/sessions"), params=params).get("items", [])
 
+    def my_sessions(self, first=100, updated_after=None):
+        """Your own sessions, newest created first. Without `updated_after`, archived ones are
+        left out; with it, every session of yours updated since then (archived too, so
+        callers can drop them)."""
+        params = [("first", first), ("user_ids", self.user_id)]
+        if updated_after is None:
+            params.append(("is_archived", "false"))
+        else:
+            params.append(("updated_after", int(updated_after)))
+        return self._req("GET", self._org("/sessions"), params=params).get("items", [])
+
+    def session_messages(self, session_id):
+        """Every message in a session, oldest first."""
+        out, after = [], None
+        while True:
+            params = [("first", 200)] + ([("after", after)] if after else [])
+            res = self._req("GET", self._org(f"/sessions/devin-{session_id}/messages"), params=params)
+            out += res.get("items", [])
+            if not res.get("has_next_page") or not res.get("end_cursor"):
+                return out
+            after = res["end_cursor"]
+
     def create_session(self, preset):
         body = {k: preset[k] for k in
                 ("prompt", "playbook_id", "repos", "title", "devin_mode", "max_acu_limit")

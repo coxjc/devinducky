@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from . import config, keys
+from . import config, keys, oled
 
 LABEL = "com.devinducky.daemon"
 PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
@@ -44,8 +44,8 @@ def cmd_test_pad(args):
             time.sleep(0.05)
         time.sleep(0.4)
         hid.with_retry(lambda p: [p.set_led(i, (0, 0, 0)) for i in range(hid.NUM_LEDS)])
-        hid.with_retry(lambda p: p.write_gv({27: 42}))
-        print("LEDs: cycled blue then off; wrote _GV27=42 (check on the INFO key)")
+        hid.with_retry(lambda p: p.write_gv({29: 42 << 8}))
+        print("LEDs: cycled blue then off; wrote 42 sessions to the INFO summary (check on the INFO key)")
     except (hid.PadNotFound, hid.PadError, hid.PadBusy) as e:
         print(f"pad HID: {e}")
     t0 = {}
@@ -75,30 +75,18 @@ def cmd_test_pad(args):
         pass
 
 
-def cmd_which_tab(args):
-    from . import auth, browser, desktop
-    from .devin import Devin, DevinError
+def cmd_recents(args):
+    """Print the session each key holds (from the daemon's saved slots, updated with what's new)."""
+    from . import auth, slots, state
+    from .devin import Devin
+    from .recents import Recents
     cfg = config.load()
-    in_app = cfg["desktop_app"] and browser.running(desktop.APP)
-    if in_app:
-        try:
-            devin = Devin(auth.api_key())
-            devin.whoami()
-            title, sid = desktop.active_session_id(devin)
-            print(f"{desktop.APP} app: {title}")
-            print(f"session: {sid or '(no session with that title)'}")
-        except (browser.BrowserError, DevinError) as e:
-            print(f"{desktop.APP} app: error: {e}")
-    try:
-        app, url = browser.active_tab_url(cfg["browsers"])
-    except browser.BrowserError as e:
-        if in_app:
-            print(f"browser: {e}")
-            return
-        sys.exit(f"error: {e}")
-    print(f"{app}: {url}")
-    sid = browser.session_id_from_url(url, cfg["session_url_regex"])
-    print(f"session: {sid or '(not a Devin session)'}")
+    d = Devin(auth.api_key())
+    d.whoami()
+    top = {s["session_id"]: s for s in Recents(d, keys.NUM_SLOTS, cfg["hide_origins"], cfg["list_first"]).refresh()}
+    for i, sid in enumerate(slots.assign(slots.load(config.SLOTS_FILE, keys.NUM_SLOTS), list(top))):
+        s = top.get(sid)
+        print(f"S{i + 1:<3} " + (f"{state.display_state(s):<9} {s.get('title') or '(untitled)'}" if s else "(empty)"))
 
 
 def cmd_playbooks(args):
@@ -115,8 +103,13 @@ def profile_scripts(cfg):
     out = {}
     names = {keys.KEY_OPEN: "NEW", keys.KEY_DASH: "DASH", keys.KEY_REFRESH: "REFR"}
     for ev, hk in keys.HOTKEY_FOR.items():
-        part = "release" if ev.kind == "up" else "press"
-        out[(ev.key, part)] = hk.ducky()
+        if ev.kind == "press":
+            out[(ev.key, "press")] = hk.ducky()
+    for k in keys.SLOT_KEYS:
+        # Give the daemon time to store the title before the title screen starts:
+        # a script sees the GVs as they were when it started.
+        out[(k, "press")] += f"\nDELAY {TITLE_WAIT_MS}"
+        out[(k, "release")] = slot_title_script(k)
     out[(keys.KEY_INFO, "press")] = INFO_SCRIPT
     out[(keys.ENC2_CW, "press")] = "MK_VOLUP"      # lower wheel is a plain volume knob,
     out[(keys.ENC2_CCW, "press")] = "MK_VOLDOWN"   # handled on the pad without the daemon
@@ -128,31 +121,108 @@ def profile_scripts(cfg):
     return out, labels
 
 
+def _per_key(var, actions):
+    """duckyScript running actions[k] when `var` == k, for each k."""
+    lines = []
+    for k, action in actions.items():
+        lines += [f"IF {var} == {k}"] + action.split("\n") + ["END_IF"]
+    return lines
+
+
+
+def slot_title_script(key):
+    """The title screen, run when slot `key` is let go after a press.
+
+    The press script has already told the daemon (press hotkey) and waited for it
+    to write that session's title and status into _GV0.._GV26 and then _GV27 = the
+    key. A script sees the GVs as they were when it started (writes that land while
+    it runs are stored but invisible to it), so this script never waits on new data.
+    It keeps the screen up and handles every key itself while it's showing:
+
+    - same key again: send its "open" hotkey and close
+    - another session key: close (tap it again to see that session; typing its
+      hotkey from here and closing while it was still held left Ctrl stuck down)
+    - any other key: do what that key does and close (INFO just closes)
+    - nothing for TITLE_SHOW_MS: close
+
+    Every key that ends the screen is waited on until it's let go, and the script
+    ends by releasing every modifier, so the pad never leaves one held.
+
+    The firmware reports the key that started a script as still pressed, so a key
+    only counts when the reading changes (starting from this key), and a key that
+    ends the screen is waited on (up to 1 s) until it's let go. Scripts never write _GVs (the
+    firmware refuses that). The text is _GV0.._GV26 copied to scratch memory and
+    printed a row at a time with PUTS (bit 29 = print to the OLED); see oled.py.
+    """
+    base, cols = oled.BASE, oled.COLS
+    loading = ["OLED_CLEAR", "OLED_CURSOR 0 4", "OLED_PRINT loading...", "OLED_UPDATE"]
+    draw = ["OLED_CLEAR"] + [f"POKE32({base + 4 * i}, _GV{i})" for i in range(oled.SCREEN_GVS)]
+    draw.append(f"POKE8({base + 4 * oled.SCREEN_GVS}, 0)")
+    for r in range(oled.SCREEN_ROWS):
+        y = 4 + 14 * r + (6 if r >= oled.ROWS else 0)        # a gap between title and status
+        draw += [f"OLED_CURSOR 0 {y}", f"PUTS({base + cols * r} | ({cols} << 16) | (1 << 29))"]
+    draw += ["OLED_CURSOR 0 114", "OLED_CPRINT tap again to open", "OLED_UPDATE"]
+    open_ = {k: keys.HOTKEY_FOR[keys.Event("open", k)].ducky() for k in keys.SLOT_KEYS}
+    other = {ev.key: hk.ducky() for ev, hk in keys.HOTKEY_FOR.items()
+             if ev.kind == "press" and keys.slot_of(ev.key) is None}
+    other[keys.ENC2_CW], other[keys.ENC2_CCW] = "MK_VOLUP", "MK_VOLDOWN"
+    # One flat loop: no inner WHILE and no LBREAK. An LBREAK right after an inner
+    # WHILE didn't leave the screen on the pad (it looped forever, or kept sending
+    # "open"), so closing is a state: wait for the key to be let go, then end.
+    end = ["closing = 1", "t0 = _TIME_MS"]
+    lines = [f"VAR want = {key}", "VAR shown = 0", f"VAR last = {key}", "VAR start = _TIME_MS",
+             "VAR t0 = 0", "VAR p = 0", "VAR closing = 0", "VAR done = 0"] + loading
+    lines += [f"WHILE done == 0 && (closing == 1 || _TIME_MS - start < {TITLE_SHOW_MS})",
+              "IF closing == 1",
+              "IF _READKEY == 0 || _TIME_MS - t0 > 1000",   # let go (or gave up waiting)
+              "done = 1",
+              "END_IF",
+              "ELSE",
+              f"IF _GV{oled.GV_HANDSHAKE} == want && shown != want"] + draw + ["shown = want", "END_IF",
+              "p = _READKEY",
+              "IF p != last",                                # act on a change only: the key that
+              "last = p",                                    # started this script reads as still down
+              "IF p != 0",
+              "IF p == want"] + _per_key("want", open_) + ["END_IF"]
+    lines += _per_key("p", other) + end + ["END_IF", "END_IF", "END_IF", "DELAY 20", "END_WHILE", "OLED_RESTORE"]
+    lines += [f"KEYUP {m}" for m in ("CTRL", "ALT", "SHIFT", "COMMAND")]   # never leave a modifier held
+    return "\n".join(lines)
+
+
+TITLE_SHOW_MS = 4000
+TITLE_WAIT_MS = 120          # press script: time for the daemon to store the title
+
 INFO_SCRIPT = """\
-// devinducky summary. The daemon writes:
-// _GV20 most urgent (0 none 1 ended 2 idle 3 done 4 working 5 starting 6 error 7 waiting 8 approval)
-// _GV21 waiting  _GV22 working  _GV23 done  _GV26 api (0 ok 1 auth 2 net)  _GV27 bound
+// devinducky summary. The daemon packs a byte per value:
+// _GV28 = most urgent | waiting << 8 | working << 16 | done << 24
+//   most urgent: 0 none 1 ended 2 idle 3 done 4 working 5 starting 6 error 7 waiting 8 approval
+// _GV29 = api (0 ok 1 auth 2 net) | sessions on keys << 8
 // The firmware redraws the key labels as soon as a script that drew to the
 // OLED ends, so stay running for a few seconds (or until another key) first.
+VAR waiting = (_GV28 >> 8) & 255
+VAR working = (_GV28 >> 16) & 255
+VAR done = (_GV28 >> 24) & 255
+VAR api = _GV29 & 255
+VAR count = (_GV29 >> 8) & 255
 OLED_CLEAR
 OLED_CURSOR 0 10
 OLED_CPRINT devinducky
 OLED_CURSOR 0 40
-IF _GV26 == 1
+IF api == 1
     OLED_CPRINT API KEY ERROR
-ELSE IF _GV26 == 2
+ELSE IF api == 2
     OLED_CPRINT API UNREACHABLE
-ELSE IF _GV27 == 0
-    OLED_CPRINT hold a key to bind
-ELSE IF _GV21 > 0
-    OLED_CPRINT $_GV21 WAITING ON YOU
-ELSE IF _GV22 > 0
-    OLED_CPRINT $_GV22 working
+ELSE IF count == 0
+    OLED_CPRINT no sessions yet
+ELSE IF waiting > 0
+    OLED_CPRINT $waiting WAITING ON YOU
+ELSE IF working > 0
+    OLED_CPRINT $working working
 ELSE
     OLED_CPRINT all quiet
 END_IF
 OLED_CURSOR 0 70
-OLED_CPRINT bound $_GV27  done $_GV23
+OLED_CPRINT sessions $count  done $done
 OLED_CURSOR 0 110
 OLED_CPRINT any key to close
 OLED_UPDATE
@@ -319,7 +389,7 @@ def main(argv=None):
     r.add_argument("--log-file", action="store_true", help=f"log to {config.LOG_FILE}")
     r.set_defaults(fn=cmd_run)
     sub.add_parser("test-pad", help="cycle LEDs and echo key events").set_defaults(fn=cmd_test_pad)
-    sub.add_parser("which-tab", help="show the active tab's Devin session").set_defaults(fn=cmd_which_tab)
+    sub.add_parser("recents", help="show which session each slot key holds").set_defaults(fn=cmd_recents)
     sub.add_parser("playbooks", help="list org playbooks").set_defaults(fn=cmd_playbooks)
     g = sub.add_parser("gen-profile", help="write the duckyPad profile scripts")
     g.add_argument("--out", default="profile")

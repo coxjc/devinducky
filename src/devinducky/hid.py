@@ -10,6 +10,7 @@ keyboard needs root and would also stop the pad's own keystrokes reaching the OS
 import ctypes
 import struct
 import sys
+import threading
 import time
 from dataclasses import dataclass
 
@@ -159,11 +160,19 @@ class Pad:
             self.send(p)
 
 
+# One HID session at a time: the renderer and the title writer run on different
+# threads, and a reply read by the wrong handle would be lost.
+IO_LOCK = threading.Lock()
+# Set while an urgent write (a slot title, which must land before the key is let
+# go) waits for IO_LOCK; long LED batches check it and stop early.
+PRIORITY = threading.Event()
+
+
 def with_retry(fn, attempts=5, delay_s=0.2):
     """Run fn(pad) in a fresh session, retrying while the pad reports BUSY."""
     for i in range(attempts):
         try:
-            with Pad() as pad:
+            with IO_LOCK, Pad() as pad:
                 return fn(pad)
         except PadBusy:
             if i == attempts - 1:

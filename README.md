@@ -1,43 +1,38 @@
 # devinducky
 
 Watch and drive [Devin](https://docs.devin.ai/api-reference/overview) sessions from a [duckyPad Pro](https://github.com/duckyPad/duckyPad-Pro).
-Bind keys to sessions, see each one's state on its LED, jump to a session with one tap, and launch new ones from presets.
+The twelve session keys mirror the recent-sessions list in the Devin desktop app: each key's LED shows that session's state, a tap shows its title and status on the pad's screen, and a second tap opens it in the app.
 Inspired by [claude-pad](https://github.com/URL42/claude-pad).
 
-macOS only, because it uses AppleScript to read and focus browser tabs.
+This fork works with the **Devin desktop app only**; nothing opens in a browser. macOS only.
 
 ## Layout
 
 ```
  ┌──────┬──────┬──────┬──────┐
- │ S1   │ S2   │ S3   │ S4   │  session slots, all empty until you bind them
- ├──────┼──────┼──────┼──────┤    hold (~0.7 s, LED turns white, let go) = bind to the Devin session in your active tab
- │ S5   │ S6   │ S7   │ S8   │                    (hold on a non-Devin tab = unbind)
- ├──────┼──────┼──────┼──────┤    tap           = go to that session
- │ S9   │ S10  │ S11  │ S12  │    LED           = session state
+ │ S1   │ S2   │ S3   │ S4   │  your 12 most recent sessions; each keeps its key once it has one
+ ├──────┼──────┼──────┼──────┤    tap           = show the session's title and status on the screen
+ │ S5   │ S6   │ S7   │ S8   │    tap it again  = open it in the Devin app (while its title shows)
+ ├──────┼──────┼──────┼──────┤    LED           = session state
+ │ S9   │ S10  │ S11  │ S12  │
  ├──────┼──────┼──────┼──────┤
  │ L1   │ L2   │ L3   │ L4   │  launch presets: tap to arm (blinks), tap again within 3 s to launch
  ├──────┼──────┼──────┼──────┤
- │ NEW  │ DASH │ REFR │ INFO │  new-session page · sessions list · refresh now · OLED summary
+ │ NEW  │ DASH │ REFR │ INFO │  Devin app · Devin app · refresh now · OLED summary
  └──────┴──────┴──────┴──────┘
- upper encoder: rotate = step through bound sessions (the browser follows when you stop), push = open
+ upper encoder: rotate = step through sessions (the app follows when you stop), push = open
  lower encoder: rotate = system volume, push = refresh
 ```
 
-"Go to that session" first looks for a tab that already has the session open (Chrome, Arc, Brave, Edge, Chromium, Safari) and brings it to the front. If there isn't one and the Devin desktop app is running, it shows the session there. It opens a new tab only if neither works. When the desktop app is in front, it goes straight to the app.
+**Which sessions.** The keys hold your 12 most recent sessions, ranked like the app's sidebar (by the time of their last message, yours or Devin's; archived ones left out). They're sticky: once a session has a key it keeps it, so the pad doesn't reshuffle under your fingers. When a session without a key becomes one of your 12 most recent (a new session, or an old one you message), it takes an empty key, or the key of the session that has been quiet longest. At first start the keys fill in sidebar order. The assignment is saved in `~/.devinducky/slots.json`, so restarts keep it; delete that file and restart to re-sort. Sessions whose origin is in `hide_origins` (by default `webapp`: scheduled and auto-fix sessions, which the sidebar doesn't list) are skipped. `devinducky recents` prints what each key holds.
 
-### Devin desktop app
+**The title screen.** A tap shows the session's title (up to 4 lines) and its status: "Waiting for you", "Needs approval", "Working", "Done", "Asleep" or the error, the number of PRs, and when it's waiting on you, the start of Devin's last message. While it's up, every key still works: tap the same key again to open the session, tap another session key to see that one instead, and any other key does its usual job and closes the screen. It closes by itself after 4 seconds.
 
-Cloud sessions in the desktop app are the same sessions the browser shows, so LEDs and polling work the same.
+**Opening.** devinducky opens a session by clicking its row in the Devin app's sidebar (found by session ID, through Accessibility), launching the app first if needed. The app's own `devin://` links only open sessions that belong to one of the app's spaces and send everything else to the browser, so the link is only a fallback for a session that isn't in the sidebar. The log says which was used ("via sidebar" or "via link"). Launched sessions open in the app too.
 
-- **Tap** opens the session in the app through its `devin://acp/session?sessionId=devin-<id>&connectorId=devin-cloud` link. If the app hasn't loaded that session yet, the app may open it in your default browser instead.
-- **Hold** with the app in front binds the session in its front window. The app doesn't expose session IDs, so devinducky matches the window title against the app's saved sessions, then against your recent sessions from the API. If the title is a generic label such as "Session", the key flashes red and nothing changes. A hold in the app never unbinds.
-- Local "Devin Local" sessions have no API ID, so they can't be bound.
-- Set `desktop_app = false` in `config.toml` to turn this off.
+**How text reaches the pad.** The pad can't receive text, only numbers, so on every session-key press the daemon packs the title and status into the pad's global variables `_GV0`–`_GV26` and then sets `_GV27` to the key. The title screen, which keeps running while it's shown, draws them once `_GV27` names the key it's waiting for.
 
-A newly launched session opens in your browser. Hold an empty slot to bind it.
-
-INFO shows a summary on the OLED for 5 seconds, or until you press another key. The summary includes the API status, how many sessions are waiting on you or working, and how many keys are bound.
+INFO shows a summary on the OLED for 5 seconds, or until you press another key. The summary includes the API status, how many sessions are waiting on you or working, and how many keys hold a session.
 
 | LED | Meaning |
 |---|---|
@@ -47,17 +42,17 @@ INFO shows a summary on the OLED for 5 seconds, or until you press another key. 
 | cyan | starting / resuming |
 | green (dims after 30 min) | finished |
 | red | error, or suspended for limits / credits |
-| dim white | suspended (inactivity / you paused it) |
+| dim pink | asleep (suspended for inactivity, or you paused it) |
 | very dim | exited or archived |
-| off | unbound |
+| off | no session (fewer than 12) |
 
-Bindings live in `~/.devinducky/bindings.json` and survive restarts. A session that ends stays bound, showing very dim, until you rebind or unbind its key.
+Notifications fire for the sessions on the keys when one starts waiting, finishes, or errors.
 
 ## How it works
 
-The duckyPad can't report key presses over HID. Each key's on-press and on-release scripts therefore type a unique hotkey, such as `Ctrl+Alt+F13`. The daemon listens for these with `pynput` and times the gap between press and release to tell a tap from a hold.
+The duckyPad can't report key presses over HID. Each key's script therefore types a unique hotkey, such as `Ctrl+Alt+F13`, and the daemon listens for these with `pynput`. A session key types one hotkey when pressed ("show my title"); its title screen, which runs on the pad, types an "open" hotkey when the same key is tapped again.
 
-In the other direction, the daemon drives the pad over HID. It sets each key's LED and writes global variables (`_GV20`–`_GV27`) that the INFO key's script reads. It polls the Devin v3 API only for the sessions that are bound. With nothing bound it makes no polling calls.
+In the other direction, the daemon drives the pad over HID. It sets each key's LED and writes global variables (`_GV20`–`_GV27`) that the INFO key's script reads. It polls the Devin v3 API for sessions updated since the last poll and reads a session's messages only when it may have moved into the top 12.
 
 `gen-profile` builds the pad profile from the same key table the daemon uses, so the two can't drift apart.
 
@@ -75,8 +70,8 @@ In the other direction, the daemon drives the pad over HID. It sets each key's L
    - Re-run `gen-profile` after renaming launch presets.
 4. Grant **Accessibility** to your terminal in System Settings › Privacy & Security. Without it, no key presses are seen.
 5. `devinducky test-pad` cycles the LEDs and prints key down/up events with timings.
-6. `devinducky which-tab` prints the active tab's session ID. The first run triggers macOS's **Automation** prompt.
-7. `devinducky up` starts the daemon in the background. Use `devinducky run -v` instead to run it in the foreground while debugging.
+6. `devinducky recents` prints the session each key will hold.
+7. `devinducky up` starts the daemon in the background. Use `devinducky run -v` instead to run it in the foreground while debugging. The first time a session opens, macOS asks to allow **Automation** for the Devin app.
 
 ### Running in the background
 
@@ -96,10 +91,8 @@ Every key is optional. The defaults are in [`src/devinducky/config.py`](src/devi
 
 ```toml
 poll_s = 10
-hold_ms = 700
-browsers = ["Google Chrome", "Arc", "Safari"]   # search / focus order
+hide_origins = ["webapp"]           # session origins the app sidebar doesn't list
 pad_profile = 0                     # only paint when this pad profile number is active (0 = any)
-new_session_url = "https://app.devin.ai/"   # what the NEW key opens
 notify = { waiting = true, finished = true, error = true }   # macOS banners
 ntfy_url = ""                       # optionally also POST notifications here
 
@@ -122,13 +115,15 @@ color  = [120, 0, 255]
 |---|---|
 | Keys do nothing | Is the daemon running? Does the right process have Accessibility? Is the pad on the devinducky profile? Check with `test-pad`. |
 | LEDs never change | Close the duckyPad configurator. |
-| Hold flashes red | The active tab isn't a Devin session, or Automation permission for the browser was denied. Check with `which-tab`. |
-| First press after a while does nothing | The pad was asleep and that press woke it. It now counts as a tap; if not, press again. |
+| Tap shows "loading..." | The daemon isn't running or can't reach the pad. Check `devinducky status`. |
+| Keys are in a different order than the app | Run `devinducky recents` and compare; REFR polls now. Sessions with a hidden origin are skipped. |
+| Second tap doesn't open the session | Allow Automation for the Devin app in System Settings › Privacy & Security › Automation. If it opens in the browser, the session isn't in the app's sidebar. |
+| First press after a while does nothing | The pad was asleep and that press woke it. Press again. |
 | INFO says API KEY ERROR | `DEVIN_API_KEY` is missing or invalid. Under launchd, make sure your login shell exports it. |
 
 ## Development
 
-`uv run pytest`. The tests need no pad, network, or browser.
+`uv run pytest`. The tests need no pad or network.
 
 Hardware details are in [`hid.py`](src/devinducky/hid.py): VID `0x0483`, PID `0xD11D`, and the protocol from the [duckyPad HID docs](https://github.com/duckyPad/duckyPad-Profile-Autoswitcher/blob/master/HID_details.md). On macOS the device is opened non-exclusively, so other tools can share it.
 

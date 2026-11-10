@@ -6,8 +6,8 @@ import tomllib
 
 HOME = os.path.expanduser("~/.devinducky")
 CONFIG_FILE = os.path.join(HOME, "config.toml")
-BINDINGS_FILE = os.path.join(HOME, "bindings.json")
 LOG_FILE = os.path.join(HOME, "daemon.log")
+SLOTS_FILE = os.path.join(HOME, "slots.json")
 
 DEFAULTS = {
     "poll_s": 10,
@@ -16,13 +16,9 @@ DEFAULTS = {
     "hold_ms": 700,
     "arm_s": 3,
     "resync_s": 10,
-    "browsers": ["Google Chrome", "Arc", "Safari", "Brave Browser", "Microsoft Edge"],
-    "desktop_app": True,       # also find and show sessions in the Devin desktop app
-    "session_url_regex": r"app\.devin\.ai/sessions/((?:devin-)?[A-Za-z0-9]+)",
-    "dashboard_url": "https://app.devin.ai/sessions",
-    "new_session_url": "https://app.devin.ai/",   # the OPEN key opens this
+    "hide_origins": ["webapp"],   # sessions the app's sidebar doesn't list (scheduled / auto-fix)
+    "list_first": 100,         # sessions listed on the first poll
     "finished_dim_s": 1800,
-    "auto_bind_launched": False,
     "pad_profile": 0,          # only paint when this profile is active; 0 = any
     "notify": {"waiting": True, "finished": True, "error": True},
     "ntfy_url": "",
@@ -35,7 +31,7 @@ DEFAULTS = {
         "working": [0, 60, 255],
         "finished": [0, 200, 40],
         "finished_dim": [0, 40, 8],
-        "idle": [14, 14, 14],
+        "idle": [26, 3, 10],      # dim pink: asleep, distinct from "ended" and the dim nav keys
         "ended": [4, 4, 4],
         "launch": [40, 0, 90],
         "nav": [10, 10, 30],
