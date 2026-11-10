@@ -76,16 +76,17 @@ def cmd_test_pad(args):
 
 
 def cmd_recents(args):
-    """Print what S1-S12 would show right now."""
-    from . import auth, state
+    """Print the session each key holds (from the daemon's saved slots, updated with what's new)."""
+    from . import auth, slots, state
     from .devin import Devin
     from .recents import Recents
     cfg = config.load()
     d = Devin(auth.api_key())
     d.whoami()
-    top = Recents(d, keys.NUM_SLOTS, cfg["hide_origins"], cfg["list_first"]).refresh()
-    for i, s in enumerate(top):
-        print(f"S{i + 1:<3} {state.display_state(s):<9} {s.get('title') or '(untitled)'}")
+    top = {s["session_id"]: s for s in Recents(d, keys.NUM_SLOTS, cfg["hide_origins"], cfg["list_first"]).refresh()}
+    for i, sid in enumerate(slots.assign(slots.load(config.SLOTS_FILE, keys.NUM_SLOTS), list(top))):
+        s = top.get(sid)
+        print(f"S{i + 1:<3} " + (f"{state.display_state(s):<9} {s.get('title') or '(untitled)'}" if s else "(empty)"))
 
 
 def cmd_playbooks(args):

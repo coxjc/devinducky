@@ -181,3 +181,28 @@ def test_open_while_another_is_opening_is_dropped(monkeypatch):
     d.nav_lock.release()
     d._open("S1", "aaa")
     assert calls == ["aaa"]
+
+
+# ---------- sticky slots ----------
+
+def test_slots_fill_in_rank_order_then_stay_put():
+    from devinducky.slots import assign
+    s = assign([None] * 4, ["a", "b", "c"])
+    assert s == ["a", "b", "c", None]
+    assert assign(s, ["c", "a", "b"]) == ["a", "b", "c", None]          # reordered ranking: nothing moves
+    assert assign(s, ["d", "c", "a", "b"]) == ["a", "b", "c", "d"]      # newcomer takes the empty key
+
+
+def test_slots_newcomer_replaces_the_one_that_dropped_out():
+    from devinducky.slots import assign
+    full = ["a", "b", "c", "d"]
+    assert assign(full, ["e", "a", "c", "d"]) == ["a", "e", "c", "d"]   # b fell out of the top: its key goes to e
+    assert assign(full, ["a", "c"]) == ["a", None, "c", None]           # archived: key emptied
+
+
+def test_slots_save_and_load_roundtrip(tmp_path):
+    from devinducky import slots
+    p = str(tmp_path / "slots.json")
+    slots.save(p, ["a", None, "c"])
+    assert slots.load(p, 4) == ["a", None, "c", None]
+    assert slots.load(str(tmp_path / "missing.json"), 2) == [None, None]

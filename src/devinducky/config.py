@@ -7,6 +7,7 @@ import tomllib
 HOME = os.path.expanduser("~/.devinducky")
 CONFIG_FILE = os.path.join(HOME, "config.toml")
 LOG_FILE = os.path.join(HOME, "daemon.log")
+SLOTS_FILE = os.path.join(HOME, "slots.json")
 
 DEFAULTS = {
     "poll_s": 10,

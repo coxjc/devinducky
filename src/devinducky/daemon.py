@@ -1,4 +1,4 @@
-"""The devinducky daemon: owns the pad, mirrors your recent Devin sessions, reacts to keys."""
+"""The devinducky daemon: owns the pad, keeps your recent Devin sessions on its keys, reacts to keys."""
 
 import json
 import logging
@@ -8,7 +8,8 @@ import threading
 import time
 import urllib.request
 
-from . import auth, desktop, hid, keys, oled, state
+from . import auth, desktop, hid, keys, oled, slots, state
+from .config import SLOTS_FILE
 from .devin import Devin, DevinError
 from .input import PadInput
 from .recents import Recents
@@ -38,7 +39,7 @@ class Daemon:
         self.cfg = cfg
         self.dry_pad = dry_pad
         self.lock = threading.RLock()
-        self.slots = [None] * keys.NUM_SLOTS   # slot index -> session_id, mirrors the app's sidebar
+        self.slots = slots.load(SLOTS_FILE, keys.NUM_SLOTS)   # slot index -> session_id (sticky)
         self.sessions = {}            # session_id -> latest session dict
         self.states = {}              # session_id -> display state
         self.finished_since = {}      # session_id -> unix ts first seen finished
@@ -85,10 +86,11 @@ class Daemon:
             old_slots = list(self.slots)
             for s in top:
                 self._update_session(s)
-            self.slots = [s["session_id"] for s in top] + [None] * (keys.NUM_SLOTS - len(top))
+            self.slots = slots.assign(self.slots, [s["session_id"] for s in top])
             on_keys = {sid: self.states[sid] for sid in self.slots if sid}
             changes = state.transitions(prev, on_keys)
         if self.slots != old_slots:
+            slots.save(SLOTS_FILE, self.slots)
             log.info("slots: %s", " | ".join(f"S{i + 1} {title_of(self.sessions[sid])[:30]}"
                                              for i, sid in enumerate(self.slots) if sid))
         for sid, _old, new in changes:

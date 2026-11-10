@@ -10,7 +10,7 @@ This fork works with the **Devin desktop app only**; nothing opens in a browser.
 
 ```
  ┌──────┬──────┬──────┬──────┐
- │ S1   │ S2   │ S3   │ S4   │  your 12 most recent sessions, in the app sidebar's order
+ │ S1   │ S2   │ S3   │ S4   │  your 12 most recent sessions; each keeps its key once it has one
  ├──────┼──────┼──────┼──────┤    tap           = show the session's title and status on the screen
  │ S5   │ S6   │ S7   │ S8   │    tap it again  = open it in the Devin app (while its title shows)
  ├──────┼──────┼──────┼──────┤    LED           = session state
@@ -24,7 +24,7 @@ This fork works with the **Devin desktop app only**; nothing opens in a browser.
  lower encoder: rotate = system volume, push = refresh
 ```
 
-**Which sessions.** The app's sidebar lists your sessions by the time of their last message, yours or Devin's, and leaves out archived ones. devinducky ranks them the same way, so S1 is the top of the sidebar. The keys reorder as the list does: message an older session and it moves to S1. Sessions whose origin is in `hide_origins` (by default `webapp`: scheduled and auto-fix sessions, which the sidebar doesn't list) are skipped. `devinducky recents` prints what each key holds right now.
+**Which sessions.** The keys hold your 12 most recent sessions, ranked like the app's sidebar (by the time of their last message, yours or Devin's; archived ones left out). They're sticky: once a session has a key it keeps it, so the pad doesn't reshuffle under your fingers. When a session without a key becomes one of your 12 most recent (a new session, or an old one you message), it takes an empty key, or the key of the session that has been quiet longest. At first start the keys fill in sidebar order. The assignment is saved in `~/.devinducky/slots.json`, so restarts keep it; delete that file and restart to re-sort. Sessions whose origin is in `hide_origins` (by default `webapp`: scheduled and auto-fix sessions, which the sidebar doesn't list) are skipped. `devinducky recents` prints what each key holds.
 
 **The title screen.** A tap shows the session's title (up to 4 lines) and its status: "Waiting for you", "Needs approval", "Working", "Done", "Asleep" or the error, the number of PRs, and when it's waiting on you, the start of Devin's last message. While it's up, every key still works: tap the same key again to open the session, tap another session key to see that one instead, and any other key does its usual job and closes the screen. It closes by itself after 4 seconds.
 
