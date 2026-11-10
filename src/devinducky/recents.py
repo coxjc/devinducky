@@ -11,7 +11,8 @@ only for sessions that bound places in the top `n`.
 
 The first refresh lists your newest sessions; later ones ask only for sessions
 updated since the previous refresh, so a months-old session you message today
-still jumps to the top.
+still jumps to the top. Archiving doesn't move updated_at, so every refresh also
+re-reads the current top sessions directly (one call).
 """
 
 import time
@@ -41,6 +42,14 @@ class Recents:
             fetched = self.devin.my_sessions(first=self.first, updated_after=int(self.synced_at - OVERLAP_S))
         for s in fetched:
             self._take(s)
+        # Archiving (and some status changes) don't move updated_at, so the
+        # updated_after query never reports them: re-read the current top directly.
+        top_ids = self._ranked()[:self.n]
+        if top_ids:
+            fresh = {s["session_id"]: s for s in self.devin.list_sessions(top_ids)}
+            for sid in top_ids:
+                if sid in fresh:
+                    self._take(fresh[sid])
         while True:
             pending = [sid for sid in self._ranked()[:self.n] if not self.last_msg[sid][2]]
             if not pending:

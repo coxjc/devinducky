@@ -38,6 +38,9 @@ class FakeDevin:
         self.message_calls.append(sid)
         return [{"created_at": t, "source": "devin"} for t in self.messages.get(sid, [])]
 
+    def list_sessions(self, ids):
+        return [s for s in self.sessions if s["session_id"] in ids]
+
 
 def _s(sid, created, updated, origin="desktop", archived=False):
     return {"session_id": sid, "title": sid.upper(), "created_at": created, "updated_at": updated,
@@ -206,3 +209,13 @@ def test_slots_save_and_load_roundtrip(tmp_path):
     slots.save(p, ["a", None, "c"])
     assert slots.load(p, 4) == ["a", None, "c", None]
     assert slots.load(str(tmp_path / "missing.json"), 2) == [None, None]
+
+
+def test_recents_drop_session_archived_without_updated_at_moving():
+    from devinducky.recents import Recents
+    a, b = _s("a", 30, 31), _s("b", 20, 21)
+    dv = FakeDevin([a, b], {"a": [31], "b": [21]})
+    r = Recents(dv)
+    r.refresh()
+    a.update(is_archived=True)               # archived; updated_at unchanged (as the API does it)
+    assert [s["session_id"] for s in r.refresh()] == ["b"]
