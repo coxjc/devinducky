@@ -30,7 +30,7 @@ DEFAULTS = {
         "working": [0, 60, 255],
         "finished": [0, 200, 40],
         "finished_dim": [0, 40, 8],
-        "idle": [60, 8, 24],      # soft pink: asleep, distinct from "ended" and the dim nav keys
+        "idle": [26, 3, 10],      # dim pink: asleep, distinct from "ended" and the dim nav keys
         "ended": [4, 4, 4],
         "launch": [40, 0, 90],
         "nav": [10, 10, 30],
